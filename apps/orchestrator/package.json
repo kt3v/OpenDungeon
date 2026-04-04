@@ -9,9 +9,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@opendungeon/content-sdk": "file:../../packages/content-sdk",
-    "@opendungeon/engine-core": "file:../../packages/engine-core",
-    "@opendungeon/shared": "file:../../packages/shared",
+    "@opendungeon/content-sdk": "workspace:*",
+    "@opendungeon/engine-core": "workspace:*",
+    "@opendungeon/shared": "workspace:*",
     "fastify": "^5.2.1"
   },
   "devDependencies": {

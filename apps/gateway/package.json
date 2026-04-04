@@ -13,11 +13,11 @@
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",
-    "@opendungeon/content-sdk": "file:../../packages/content-sdk",
-    "@opendungeon/architect": "file:../../packages/architect",
-    "@opendungeon/engine-core": "file:../../packages/engine-core",
-    "@opendungeon/providers-llm": "file:../../packages/providers-llm",
-    "@opendungeon/shared": "file:../../packages/shared",
+    "@opendungeon/content-sdk": "workspace:*",
+    "@opendungeon/architect": "workspace:*",
+    "@opendungeon/engine-core": "workspace:*",
+    "@opendungeon/providers-llm": "workspace:*",
+    "@opendungeon/shared": "workspace:*",
     "@prisma/client": "^6.6.0",
     "fastify": "^5.2.1",
     "zod": "^3.24.2"

@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
 import net from "node:net";
+import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 
 const requiredNodeMajor = 22;
 
