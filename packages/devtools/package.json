@@ -1,6 +1,6 @@
 {
   "name": "@opendungeon/devtools",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Developer tools and CLI for OpenDungeon module development",
   "type": "module",
   "bin": {

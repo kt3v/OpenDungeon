@@ -1,6 +1,6 @@
 {
   "name": "@opendungeon/providers-llm",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "LLM provider abstractions for OpenDungeon",
   "type": "module",
   "main": "dist/index.js",

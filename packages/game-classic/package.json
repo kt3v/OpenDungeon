@@ -1,6 +1,6 @@
 {
   "name": "@opendungeon/game-classic",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Classic RPG module for OpenDungeon engine",
   "type": "module",
   "main": "dist/index.js",

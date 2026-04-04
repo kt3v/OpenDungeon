@@ -1,6 +1,6 @@
 {
   "name": "opendungeon",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Full-stack LLM-powered RPG engine for creating procedurally generated and narrative-driven games",
   "type": "module",
   "main": "dist/index.js",

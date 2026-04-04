@@ -1,6 +1,6 @@
 {
   "name": "@opendungeon/engine-core",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Core engine logic for OpenDungeon RPG framework",
   "type": "module",
   "main": "dist/index.js",

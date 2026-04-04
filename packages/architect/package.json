@@ -1,6 +1,6 @@
 {
   "name": "@opendungeon/architect",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "World building and content generation engine for OpenDungeon",
   "type": "module",
   "main": "dist/index.js",
