@@ -1,10 +1,23 @@
-import { copyFileSync, existsSync, readFileSync, appendFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, appendFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
+import os from "node:os";
 
 const rootDir = process.cwd();
 const envExamplePath = resolve(rootDir, ".env.example");
 const envLocalPath = resolve(rootDir, ".env.local");
+
+const getLocalIp = () => {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === "IPv4" && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return "localhost";
+};
 
 const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, {
@@ -87,13 +100,20 @@ const main = () => {
     );
   }
 
+  const localIp = getLocalIp();
+
   // 1. Ensure .env.local exists
   if (!existsSync(envLocalPath)) {
     if (!existsSync(envExamplePath)) {
       throw new Error(".env.example is missing");
     }
-    copyFileSync(envExamplePath, envLocalPath);
-    process.stdout.write("Created .env.local from .env.example\n");
+    
+    // Create .env.local with IP injection
+    let content = readFileSync(envExamplePath, "utf8");
+    content = content.replace(/localhost:3001/g, `${localIp}:3001`);
+    writeFileSync(envLocalPath, content);
+    
+    process.stdout.write(`Created .env.local from .env.example (using Local IP: ${localIp})\n`);
   } else {
     // 2. Smart Merge: ensure required keys are present even if file exists
     const currentEnv = parseEnvFile(envLocalPath);
@@ -103,7 +123,12 @@ const main = () => {
     let addedCount = 0;
     for (const key of requiredKeys) {
       if (!currentEnv[key] && exampleEnv[key]) {
-        appendFileSync(envLocalPath, `\n${key}=${exampleEnv[key]}`);
+        let value = exampleEnv[key];
+        // Inject IP if we are adding the Gateway URL
+        if (key === "NEXT_PUBLIC_GATEWAY_URL") {
+          value = value.replace("localhost", localIp);
+        }
+        appendFileSync(envLocalPath, `\n${key}=${value}`);
         addedCount++;
       }
     }

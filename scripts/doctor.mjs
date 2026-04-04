@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import net from "node:net";
+import os from "node:os";
 import { resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 
@@ -43,9 +44,24 @@ const ok = (label, value) => `OK  ${label}: ${value}`;
 const warn = (label, value) => `WARN ${label}: ${value}`;
 const fail = (label, value) => `FAIL ${label}: ${value}`;
 
+const getLocalIp = () => {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === "IPv4" && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return "127.0.0.1";
+};
+
 const main = async () => {
   const messages = [];
   let hasHardFailures = false;
+
+  const localIp = getLocalIp();
+  messages.push(ok("Local IP", `${localIp} (use this for NEXT_PUBLIC_GATEWAY_URL if accessing from other devices)`));
 
   const nodeVersion = process.versions.node;
   const nodeMajor = Number(nodeVersion.split(".")[0] || "0");
