@@ -1,0 +1,35 @@
+{
+  "name": "opendungeon",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "npm@10.9.4",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "db:generate": "npx prisma generate --schema prisma/schema.prisma",
+    "db:push": "npx prisma db push --schema prisma/schema.prisma",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "doctor": "node scripts/doctor.mjs",
+    "setup": "node scripts/setup.mjs",
+    "llm:setup": "node scripts/llm-setup.mjs",
+    "architect": "od architect",
+    "create:game-module": "node scripts/create-game-module.mjs",
+    "clean:state": "bash scripts/clean-local-state.sh",
+    "dev:full": "dotenv -e .env.local -- concurrently -k \"npm run dev -w @opendungeon/gateway\" \"npm run dev -w @opendungeon/web\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.1",
+    "concurrently": "^9.1.2",
+    "dotenv-cli": "^8.0.0",
+    "prisma": "^6.6.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.3"
+  }
+}

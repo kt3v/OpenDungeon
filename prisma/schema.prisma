@@ -1,0 +1,188 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String           @id @default(uuid()) @db.Uuid
+  email           String           @unique
+  password        String
+  displayName     String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  memberships     CampaignMember[]
+  sessions        Session[]
+}
+
+model Campaign {
+  id              String           @id @default(uuid()) @db.Uuid
+  tenantId        String           @db.Uuid
+  title           String
+  moduleName      String
+  moduleVersion   String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  /// Cross-session compiled narrative — appended by the Architect chronicler
+  campaignArchive String?          @db.Text
+  members         CampaignMember[]
+  sessions        Session[]
+  worldFacts      WorldFact[]
+  actionQueue     ActionQueue[]
+  eventLog        EventLog[]
+  loreEntries     LoreEntry[]
+  milestones      Milestone[]
+
+  @@index([tenantId])
+}
+
+model CampaignMember {
+  id         String   @id @default(uuid()) @db.Uuid
+  campaignId String   @db.Uuid
+  userId     String   @db.Uuid
+  role       String
+  createdAt  DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, userId])
+}
+
+/// Session IS the character — creating a session creates a new character run.
+/// When the character dies, the session ends and a new one can be started.
+model Session {
+  id                  String        @id @default(uuid()) @db.Uuid
+  campaignId          String        @db.Uuid
+  userId              String?       @db.Uuid
+  characterName       String        @default("")
+  characterClass      String        @default("")
+  characterLevel      Int           @default(1)
+  characterHp         Int           @default(100)
+  characterAttributes Json          @default("{}")
+  characterInventory  Json          @default("{}")
+  /// Character-local state: personal flags, session-ephemeral values, etc.
+  /// This is the character's private context — never shared across sessions.
+  characterState      Json          @default("{}")
+  status              String
+  startedAt           DateTime      @default(now())
+  endedAt             DateTime?
+  summary             String?
+  archive             String?       @db.Text
+  events              EventLog[]
+  actionQueue         ActionQueue[]
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId])
+  @@index([campaignId, userId])
+}
+
+/// Canonical world state — one row per (campaign, key).
+/// All players in a campaign share these facts. Written atomically with
+/// optimistic version locking so concurrent patches don't silently drop data.
+model WorldFact {
+  id            String   @id @default(uuid()) @db.Uuid
+  campaignId    String   @db.Uuid
+  key           String
+  value         Json
+  version       Int      @default(1)
+  /// Which session last wrote this fact (for cross-player mutation feed).
+  lastSessionId String?  @db.Uuid
+  updatedAt     DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, key])
+  @@index([campaignId])
+  @@index([campaignId, updatedAt])
+}
+
+/// Async action queue — one row per submitted player action.
+/// The gateway returns 202 immediately and processes entries in the background.
+/// Per-campaign commit serialization prevents world-state races.
+model ActionQueue {
+  id               String    @id @default(uuid()) @db.Uuid
+  sessionId        String    @db.Uuid
+  campaignId       String    @db.Uuid
+  actionText       String
+  mechanicActionId String?
+  /// pending → processing → done | failed
+  status           String    @default("pending")
+  /// Serialised ActionResult + event payload, set when status = done
+  result           Json?
+  errorMessage     String?
+  createdAt        DateTime  @default(now())
+  processedAt      DateTime?
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  session  Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([campaignId, status])
+}
+
+model EventLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  campaignId String   @db.Uuid
+  sessionId  String   @db.Uuid
+  type       String
+  payload    Json
+  createdAt  DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  session  Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, createdAt])
+  @@index([sessionId, createdAt])
+}
+
+model ModuleRegistry {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  version      String
+  manifestJson Json
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@unique([name, version])
+}
+
+model LoreEntry {
+  id          String   @id @default(uuid()) @db.Uuid
+  campaignId  String   @db.Uuid
+  entityName  String
+  type        String
+  description String   @db.Text
+  /// Who wrote this entry: "runtime" (lore extractor), "developer" (architect CLI), "chronicler" (architect background)
+  source      String   @default("runtime")
+  /// Incremented on each update — authoritative writes may override non-authoritative
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, entityName])
+  @@index([campaignId, entityName])
+}
+
+/// Key campaign events detected by the Architect chronicler
+model Milestone {
+  id            String   @id @default(uuid()) @db.Uuid
+  campaignId    String   @db.Uuid
+  sessionId     String?  @db.Uuid
+  title         String
+  description   String   @db.Text
+  /// boss_kill | story_beat | campaign_end | custom
+  milestoneType String
+  detectedAt    DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, detectedAt])
+}

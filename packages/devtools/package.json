@@ -1,0 +1,20 @@
+{
+  "name": "@opendungeon/devtools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "od": "dist/cli.js"
+  },
+  "main": "dist/cli.js",
+  "types": "dist/cli.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@opendungeon/architect": "file:../architect",
+    "@opendungeon/shared": "file:../shared",
+    "@prisma/client": "^6.0.0"
+  }
+}

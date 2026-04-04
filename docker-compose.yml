@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16
+    container_name: opendungeon-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: od
+      POSTGRES_PASSWORD: odpass
+      POSTGRES_DB: opendungeon
+    ports:
+      - "5432:5432"
+    volumes:
+      - opendungeon-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U od -d opendungeon"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  opendungeon-db-data:

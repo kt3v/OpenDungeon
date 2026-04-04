@@ -1,0 +1,20 @@
+{
+  "name": "@opendungeon/orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@opendungeon/content-sdk": "file:../../packages/content-sdk",
+    "@opendungeon/engine-core": "file:../../packages/engine-core",
+    "@opendungeon/shared": "file:../../packages/shared",
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.3"
+  }
+}
