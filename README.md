@@ -53,11 +53,11 @@ cd OpenDungeon
 pnpm install
 
 # 2. Check and Setup
-pnpm run doctor
-pnpm run setup
+pnpm doctor
+pnpm setup
 
 # 3. Launch Development Environment
-pnpm run dev:full
+pnpm start
 ```
 Open `http://localhost:3000` to start your first campaign in the web client.
 
@@ -76,13 +76,25 @@ OpenDungeon is a monorepo consisting of several specialized packages:
 
 ---
 
+## 🚀 CLI Usage (`od`)
+
+The `od` command-line tool (provided by `@opendungeon/devtools`) is the primary way to manage your OpenDungeon environment:
+
+- **`od setup`**: First-time initialization (Docker, environment, database).
+- **`od start`**: Launch the engine services (gateway and web UI) in the background.
+- **`od stop`**: Shut down all background services.
+- **`od status`**: Check which services are running and their addresses.
+- **`od logs [service]`**: View logs for `gateway` or `web`.
+- **`od configure llm`**: Interactive AI provider setup.
+- **`od reset`**: Wipe all local state and start fresh.
+
 ## 🛠 Creating Your Own Module
 
 OpenDungeon loads gameplay from a module path. To create a new game module:
 
 ```bash
 # Using the devtools CLI
-npx od create-module ../my-new-game
+pnpm create:game-module ../my-new-game
 ```
 
 See [Creating a Game](docs/creating-a-game.md) for more details.

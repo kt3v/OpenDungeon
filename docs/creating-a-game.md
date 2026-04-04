@@ -10,10 +10,10 @@ A game in OpenDungeon is a separate package that implements the `GameModule` int
 
 ```bash
 # From the engine root
-npm run create:game-module -- ../my-game
+pnpm create:game-module -- ../my-game
 
 # Or interactive mode
-npm run create:game-module
+pnpm create:game-module
 ```
 
 This generates a starter project at the target path.
@@ -22,7 +22,7 @@ This generates a starter project at the target path.
 
 ```bash
 cd ../my-game
-npm install
+pnpm install
 ```
 
 ### 3. Point the engine at your game
@@ -37,7 +37,7 @@ GAME_MODULE_PATH=../my-game
 
 ```bash
 # From the engine root
-npm run dev:full
+pnpm start
 ```
 
 The engine validates your `GameModule` at startup and fails fast with a clear error if the shape is wrong.
