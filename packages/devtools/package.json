@@ -4,7 +4,7 @@
   "description": "Developer tools and CLI for OpenDungeon module development",
   "type": "module",
   "bin": {
-    "od": "dist/cli.js"
+    "od": "bin/od.js"
   },
   "main": "dist/cli.js",
   "types": "dist/cli.d.ts",

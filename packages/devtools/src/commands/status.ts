@@ -59,5 +59,17 @@ export async function runStatus(_args: string[]): Promise<void> {
     println(color("  Gateway: ", c.dim) + color(`http://localhost:${gatewayPort}`, c.cyan));
   }
 
+  // AI/LLM Config
+  const provider = getEnvValue(env, "LLM_PROVIDER") || "not set";
+  const model = getEnvValue(env, "LLM_MODEL") || (provider === "mock" ? "mock-engine" : "not set");
+
+  println();
+  println(color("  AI/LLM Provider: ", c.dim) + color(provider, c.bold, c.blue));
+  if (provider !== "mock") {
+    println(color("  Model:           ", c.dim) + color(model, c.cyan));
+  } else {
+    println(color("  Model:           ", c.dim) + color("mock-engine", c.dim));
+  }
+
   println();
 }

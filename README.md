@@ -52,12 +52,15 @@ git clone https://github.com/kt3v/OpenDungeon.git
 cd OpenDungeon
 pnpm install
 
-# 2. Check and Setup
-pnpm doctor
-pnpm setup
+# 2. Build the project
+pnpm build
 
-# 3. Launch Development Environment
-pnpm start
+# 3. Check and Setup
+pnpm doctor
+od setup
+
+# 4. Launch Development Environment
+od start
 ```
 Open `http://localhost:3000` to start your first campaign in the web client.
 

@@ -30,6 +30,15 @@
     "clean:state": "bash scripts/clean-local-state.sh",
     "dev:full": "dotenv -e .env.local -- concurrently -k \"PORT=\\$GATEWAY_PORT pnpm --filter @opendungeon/gateway dev\" \"PORT=\\$WEB_PORT pnpm --filter @opendungeon/web dev\""
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "prisma",
+      "sharp"
+    ]
+  },
   "devDependencies": {
     "@opendungeon/devtools": "workspace:*",
     "@prisma/client": "^6.0.0",

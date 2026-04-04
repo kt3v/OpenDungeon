@@ -1,7 +1,7 @@
 {
   "name": "@opendungeon/architect",
   "version": "0.1.2",
-  "description": "World building and content generation engine for OpenDungeon",
+  "description": "Procedural content generator and chronicler for OpenDungeon campaigns",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -24,12 +24,15 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "db:generate": "prisma generate --schema ../../prisma/schema.prisma",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@opendungeon/providers-llm": "workspace:*",
     "@opendungeon/shared": "workspace:*",
-    "@prisma/client": "^6.0.0",
-    "zod": "^3.24.2"
+    "@prisma/client": "^6.0.0"
+  },
+  "devDependencies": {
+    "prisma": "^6.6.0"
   }
 }

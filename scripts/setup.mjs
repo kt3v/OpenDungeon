@@ -36,9 +36,9 @@ const checkPortInUse = (port) =>
     server.listen(port, "127.0.0.1");
   });
 
-const findAvailablePort = async (startPort) => {
+const findAvailablePort = async (startPort, skip = []) => {
   let port = startPort;
-  while (await checkPortInUse(port)) {
+  while (await checkPortInUse(port) || skip.includes(port)) {
     port += 1;
   }
   return port;
@@ -131,7 +131,7 @@ const main = async () => {
 
   // Determine ideal ports
   const webPort = await findAvailablePort(Number(currentEnv.WEB_PORT || exampleEnv.WEB_PORT || 3000));
-  const gatewayPort = await findAvailablePort(Number(currentEnv.GATEWAY_PORT || exampleEnv.GATEWAY_PORT || 3001));
+  const gatewayPort = await findAvailablePort(Number(currentEnv.GATEWAY_PORT || exampleEnv.GATEWAY_PORT || 3001), [webPort]);
 
   const config = {
     ...exampleEnv, // Start with defaults
