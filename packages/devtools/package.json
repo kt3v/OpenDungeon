@@ -1,20 +1,37 @@
 {
   "name": "@opendungeon/devtools",
   "version": "0.1.0",
-  "private": true,
+  "description": "Developer tools and CLI for OpenDungeon module development",
   "type": "module",
   "bin": {
     "od": "dist/cli.js"
   },
   "main": "dist/cli.js",
   "types": "dist/cli.d.ts",
+  "files": [
+    "dist"
+  ],
+  "author": "indie indie <https://github.com/kt3v>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kt3v/OpenDungeon.git",
+    "directory": "packages/devtools"
+  },
+  "bugs": {
+    "url": "https://github.com/kt3v/OpenDungeon/issues"
+  },
+  "homepage": "https://github.com/kt3v/OpenDungeon/tree/main/packages/devtools#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@opendungeon/architect": "file:../architect",
-    "@opendungeon/shared": "file:../shared",
+    "@opendungeon/architect": "workspace:*",
+    "@opendungeon/shared": "workspace:*",
     "@prisma/client": "^6.0.0"
   }
 }

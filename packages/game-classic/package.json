@@ -1,15 +1,33 @@
 {
   "name": "@opendungeon/game-classic",
   "version": "0.1.0",
-  "private": true,
+  "description": "Classic RPG module for OpenDungeon engine",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "manifest.json"
+  ],
+  "author": "indie indie <https://github.com/kt3v>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kt3v/OpenDungeon.git",
+    "directory": "packages/game-classic"
+  },
+  "bugs": {
+    "url": "https://github.com/kt3v/OpenDungeon/issues"
+  },
+  "homepage": "https://github.com/kt3v/OpenDungeon/tree/main/packages/game-classic#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@opendungeon/content-sdk": "file:../content-sdk"
+    "@opendungeon/content-sdk": "workspace:*"
   }
 }

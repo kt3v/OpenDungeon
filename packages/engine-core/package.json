@@ -1,13 +1,24 @@
 {
   "name": "@opendungeon/engine-core",
   "version": "0.1.0",
+  "description": "Core engine logic for OpenDungeon RPG framework",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist"
   ],
+  "author": "indie indie <https://github.com/kt3v>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kt3v/OpenDungeon.git",
+    "directory": "packages/engine-core"
+  },
+  "bugs": {
+    "url": "https://github.com/kt3v/OpenDungeon/issues"
+  },
+  "homepage": "https://github.com/kt3v/OpenDungeon/tree/main/packages/engine-core#readme",
   "publishConfig": {
     "access": "public"
   },
