@@ -98,7 +98,7 @@ const main = () => {
     // 2. Smart Merge: ensure required keys are present even if file exists
     const currentEnv = parseEnvFile(envLocalPath);
     const exampleEnv = parseEnvFile(envExamplePath);
-    const requiredKeys = ["DATABASE_URL", "GAME_MODULE_PATH", "NEXT_PUBLIC_GATEWAY_URL"];
+    const requiredKeys = ["DATABASE_URL", "GAME_MODULE_PATH", "NEXT_PUBLIC_GATEWAY_URL", "WEB_PORT", "GATEWAY_PORT"];
     
     let addedCount = 0;
     for (const key of requiredKeys) {

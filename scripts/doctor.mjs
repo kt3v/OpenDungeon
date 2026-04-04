@@ -105,7 +105,11 @@ const main = async () => {
   for (const port of ports) {
     const busy = await checkPortInUse(port);
     if (busy) {
-      messages.push(warn(`port ${port}`, "already in use"));
+      let hint = "";
+      if (port === 3000) hint = " (frontend, try setting PORT=3005)";
+      if (port === 3001) hint = " (gateway, try setting PORT=3006)";
+      if (port === 5432) hint = " (postgres, check if another DB is running)";
+      messages.push(warn(`port ${port}`, `already in use${hint}`));
     } else {
       messages.push(ok(`port ${port}`, "available"));
     }

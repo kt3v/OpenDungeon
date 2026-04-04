@@ -22,7 +22,7 @@
     "architect": "od architect",
     "create:game-module": "node scripts/create-game-module.mjs",
     "clean:state": "bash scripts/clean-local-state.sh",
-    "dev:full": "dotenv -e .env.local -- concurrently -k \"npm run dev -w @opendungeon/gateway\" \"npm run dev -w @opendungeon/web\""
+    "dev:full": "dotenv -e .env.local -- concurrently -k \"PORT=\\$GATEWAY_PORT pnpm --filter @opendungeon/gateway dev\" \"PORT=\\$WEB_PORT pnpm --filter @opendungeon/web dev\""
   },
   "devDependencies": {
     "@prisma/client": "^6.0.0",
