@@ -82,6 +82,23 @@ const main = async () => {
     hasHardFailures = true;
   }
 
+  // Check .env.local
+  const envPath = resolve(process.cwd(), ".env.local");
+  if (!existsSync(envPath)) {
+    messages.push(warn(".env.local", "missing (run setup to create it)"));
+  } else {
+    const envContent = readFileSync(envPath, "utf8");
+    const requiredKeys = ["DATABASE_URL", "GAME_MODULE_PATH"];
+    for (const key of requiredKeys) {
+      if (!envContent.includes(`${key}=`)) {
+        messages.push(fail(`.env.local: ${key}`, "missing"));
+        hasHardFailures = true;
+      } else {
+        messages.push(ok(`.env.local: ${key}`, "present"));
+      }
+    }
+  }
+
   const ports = [3000, 3001, 5432];
   for (const port of ports) {
     const busy = await checkPortInUse(port);

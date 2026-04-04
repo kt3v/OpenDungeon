@@ -1,0 +1,36 @@
+{
+  "name": "opendungeon",
+  "version": "0.1.0",
+  "description": "Full-stack LLM-powered RPG engine for creating procedurally generated and narrative-driven games",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "author": "indie indie <https://github.com/kt3v>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kt3v/OpenDungeon.git",
+    "directory": "packages/opendungeon"
+  },
+  "bugs": {
+    "url": "https://github.com/kt3v/OpenDungeon/issues"
+  },
+  "homepage": "https://github.com/kt3v/OpenDungeon#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@opendungeon/shared": "workspace:*",
+    "@opendungeon/content-sdk": "workspace:*",
+    "@opendungeon/engine-core": "workspace:*",
+    "@opendungeon/providers-llm": "workspace:*",
+    "@opendungeon/architect": "workspace:*"
+  }
+}
