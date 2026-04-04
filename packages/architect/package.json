@@ -18,6 +18,7 @@
   "dependencies": {
     "@opendungeon/providers-llm": "workspace:*",
     "@opendungeon/shared": "workspace:*",
+    "@prisma/client": "^6.0.0",
     "zod": "^3.24.2"
   }
 }
