@@ -55,6 +55,11 @@ export interface ExecuteTurnInput {
   summary?: string;
   contextualLore?: string;
   lastSuggestedActions?: SuggestedAction[];
+  /**
+   * Player's preferred language for DM responses.
+   * If empty, DM will respond in the same language as the player's input.
+   */
+  playerLanguage?: string;
 }
 
 export interface CharacterCreatedInput {
@@ -312,7 +317,7 @@ export class EngineRuntime {
     input: ExecuteTurnInput,
     ctx: ActionContext
   ): Promise<ActionResult> {
-    const systemPrompt = this.buildSystemPrompt(ctx.worldState, input.campaignTitle);
+    const systemPrompt = this.buildSystemPrompt(ctx.worldState, input.campaignTitle, input.playerLanguage);
 
     const availableMechanicActions = this.mechanics.flatMap((m) =>
       Object.entries(m.actions ?? {}).map(([actionId, actionDef]) => ({
@@ -370,10 +375,12 @@ export class EngineRuntime {
    * 1. Setting / world bible (if defined)
    * 2. Module base prompt (promptTemplate or systemPrompt)
    * 3. Each mechanic's dmPromptExtension
+   * 4. Player language preference instruction
    */
   private buildSystemPrompt(
     worldState: Record<string, unknown>,
-    campaignTitle?: string
+    campaignTitle?: string,
+    playerLanguage?: string
   ): string {
     const { dm, setting } = this.gameModule;
 
@@ -400,10 +407,18 @@ export class EngineRuntime {
       .map((m) => m.dmPromptExtension!({ worldState }))
       .filter(Boolean);
 
+    // Section 4: Language instruction
+    let languageSection = "";
+    if (playerLanguage) {
+      languageSection = `\n\n## Language\nYou MUST respond in ${playerLanguage} language. This is the player's preferred language, regardless of what language they used in their action.`;
+    } else {
+      languageSection = "\n\n## Language\nRespond in the same language the player used for their action. If the player switches languages, switch with them.";
+    }
+
     // Combine all sections
     const parts: string[] = [];
     if (settingSection) parts.push(settingSection);
-    parts.push(base);
+    parts.push(base + languageSection);
     if (extensions.length > 0) parts.push(extensions.join("\n\n"));
 
     return parts.join("\n\n");

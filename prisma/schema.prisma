@@ -12,6 +12,7 @@ model User {
   email           String           @unique
   password        String
   displayName     String?
+  language        String           @default("")
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   memberships     CampaignMember[]

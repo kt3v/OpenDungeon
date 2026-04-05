@@ -55,6 +55,7 @@ export default function HomePage() {
   const [token, setToken] = useState("");
   const [email, setEmail] = useState("hero@od.dev");
   const [password, setPassword] = useState("secret123");
+  const [language, setLanguage] = useState("");
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
 
@@ -117,7 +118,7 @@ export default function HomePage() {
       const data = await request("/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, language }),
       });
       setToken(data.token);
       await loadCampaignsWithToken(data.token);
@@ -137,7 +138,7 @@ export default function HomePage() {
       const data = await request("/auth/register", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, password, displayName: email.split("@")[0] }),
+        body: JSON.stringify({ email, password, displayName: email.split("@")[0], language }),
       });
       setToken(data.token);
       await loadCampaignsWithToken(data.token);
@@ -938,10 +939,12 @@ export default function HomePage() {
         <AuthScreen
           email={email}
           password={password}
+          language={language}
           isLoading={authLoading}
           error={authError}
           setEmail={setEmail}
           setPassword={setPassword}
+          setLanguage={setLanguage}
           onLogin={() => void handleLogin()}
           onRegister={() => void handleRegister()}
         />

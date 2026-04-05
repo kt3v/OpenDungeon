@@ -48,6 +48,7 @@ type User = {
   email: string;
   password: string;
   displayName: string;
+  language: string;
   createdAt: string;
 };
 
@@ -125,12 +126,14 @@ type PersistenceContext = {
 const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
-  displayName: z.string().min(1).optional()
+  displayName: z.string().min(1).optional(),
+  language: z.string().optional()
 });
 
 const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(1)
+  password: z.string().min(1),
+  language: z.string().optional()
 });
 
 const createCampaignSchema = z.object({
@@ -222,6 +225,7 @@ const initPersistence = async (db: InMemoryDb): Promise<PersistenceContext> => {
       email: user.email,
       password: user.password,
       displayName: user.displayName ?? user.email,
+      language: user.language ?? "",
       createdAt: user.createdAt.toISOString()
     };
     db.usersById.set(loadedUser.id, loadedUser);
@@ -236,8 +240,8 @@ const initPersistence = async (db: InMemoryDb): Promise<PersistenceContext> => {
       title: campaign.title,
       moduleName: campaign.moduleName,
       moduleVersion: campaign.moduleVersion,
-      ownerId: campaign.members.find((m) => m.role === "owner")?.userId ?? campaign.tenantId,
-      memberIds: new Set(campaign.members.map((m) => m.userId)),
+      ownerId: campaign.members.find((m: { role: string; userId: string }) => m.role === "owner")?.userId ?? campaign.tenantId,
+      memberIds: new Set(campaign.members.map((m: { userId: string }) => m.userId)),
       createdAt: campaign.createdAt.toISOString()
     };
     db.campaignsById.set(loadedCampaign.id, loadedCampaign);
@@ -293,6 +297,7 @@ const sanitizeUser = (user: User) => ({
   id: user.id,
   email: user.email,
   displayName: user.displayName,
+  language: user.language,
   createdAt: user.createdAt
 });
 
@@ -331,8 +336,8 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     if (!persistence.prisma) return;
     await persistence.prisma.user.upsert({
       where: { id: user.id },
-      update: { email: user.email, password: user.password, displayName: user.displayName },
-      create: { id: user.id, email: user.email, password: user.password, displayName: user.displayName }
+      update: { email: user.email, password: user.password, displayName: user.displayName, language: user.language },
+      create: { id: user.id, email: user.email, password: user.password, displayName: user.displayName, language: user.language }
     });
   };
 
@@ -425,6 +430,8 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     getSession(sessionId) {
       const s = db.sessionsById.get(sessionId);
       if (!s) return undefined;
+      // Get user language for this session
+      const user = db.usersById.get(s.userId);
       return {
         id: s.id,
         campaignId: s.campaignId,
@@ -439,7 +446,8 @@ export const buildApp = async (): Promise<FastifyInstance> => {
         status: s.status,
         summary: s.summary,
         recentEvents: s.events,
-        suggestedActions: s.suggestedActions
+        suggestedActions: s.suggestedActions,
+        userLanguage: user?.language
       };
     },
 
@@ -523,7 +531,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     if (!parsed.success) {
       return reply.code(400).send({ error: "INVALID_BODY", details: parsed.error.flatten() });
     }
-    const { email, password, displayName } = parsed.data;
+    const { email, password, displayName, language } = parsed.data;
     if (db.usersByEmail.has(email)) {
       return reply.code(409).send({ error: "EMAIL_IN_USE" });
     }
@@ -532,6 +540,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       email,
       password,
       displayName: displayName ?? email.split("@")[0] ?? "player",
+      language: language ?? "",
       createdAt: new Date().toISOString()
     };
     db.usersById.set(user.id, user);
@@ -554,17 +563,25 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     if (!parsed.success) {
       return reply.code(400).send({ error: "INVALID_BODY", details: parsed.error.flatten() });
     }
-    const { email, password } = parsed.data;
+    const { email, password, language } = parsed.data;
     const user = db.usersByEmail.get(email);
     if (!user || user.password !== password) {
       return reply.code(401).send({ error: "INVALID_CREDENTIALS" });
     }
+
+    // Update user language if provided
+    if (language && language !== user.language) {
+      user.language = language;
+      await persistUser(user);
+    }
+
     const token = randomUUID();
     db.tokens.set(token, user.id);
 
     logGameEvent("USER_LOGGED_IN", {
       userId: user.id,
-      email: user.email
+      email: user.email,
+      language: user.language || "default"
     });
 
     return { token, user: sanitizeUser(user) };

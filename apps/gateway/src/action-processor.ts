@@ -62,6 +62,10 @@ export interface SessionSnapshot {
     message: string;
   }>;
   suggestedActions: Array<{ id: string; label: string; prompt: string }>;
+  /**
+   * Player's preferred language for DM responses.
+   */
+  userLanguage?: string;
 }
 
 export interface CampaignSnapshot {
@@ -243,11 +247,11 @@ export class ActionProcessor {
             where: { campaignId }
           });
           const actionLower = actionText.toLowerCase();
-          const matching = allLore.filter((l) =>
+          const matching = allLore.filter((l: { entityName: string }) =>
             actionLower.includes(l.entityName.toLowerCase())
           );
           const parts: string[] = matching.map(
-            (l) => `${l.entityName} (${l.type}): ${l.description}`
+            (l: { entityName: string; type: string; description: string }) => `${l.entityName} (${l.type}): ${l.description}`
           );
 
           // Inject cross-player world mutations as contextual lore
@@ -290,7 +294,8 @@ export class ActionProcessor {
         campaignTitle: campaign.title,
         summary: session.summary,
         contextualLore,
-        lastSuggestedActions: session.suggestedActions
+        lastSuggestedActions: session.suggestedActions,
+        playerLanguage: session.userLanguage
       });
 
       // Log unhandled intents (fire-and-forget, no await — does not block the turn)
@@ -575,7 +580,7 @@ export class ActionProcessor {
       campaignId,
       sessionId,
       recentEvents: session.recentEvents.slice(-20),
-      existingLore: allLore.map((l) => ({
+      existingLore: allLore.map((l: { entityName: string; type: string; description: string }) => ({
         entityName: l.entityName,
         type: l.type,
         description: l.description

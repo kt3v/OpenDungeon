@@ -124,10 +124,12 @@ type SessionEvent = {
 type AuthScreenProps = {
   email: string;
   password: string;
+  language: string;
   isLoading: boolean;
   error: string;
   setEmail: (value: string) => void;
   setPassword: (value: string) => void;
+  setLanguage: (value: string) => void;
   onLogin: () => void;
   onRegister: () => void;
 };
@@ -167,6 +169,18 @@ export function AuthScreen(props: AuthScreenProps) {
               onKeyDown={handleKey}
               placeholder="••••••••"
               autoComplete="current-password"
+            />
+          </div>
+          <div className="field-group">
+            <label className="field-label">Language / Language</label>
+            <input
+              className="od-input"
+              type="text"
+              value={props.language}
+              onChange={(e) => props.setLanguage(e.target.value)}
+              onKeyDown={handleKey}
+              placeholder="e.g. Spain, Russian, German"
+              autoComplete="off"
             />
           </div>
         </div>
