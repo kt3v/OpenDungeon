@@ -385,6 +385,49 @@ export interface ProviderRuntimeConfig extends ProviderFactoryInput {
   hasApiKey: boolean;
 }
 
+// Helper functions (declared before use)
+const stripTrailingSlash = (value: string): string => value.replace(/\/+$/, "");
+
+const normalizePath = (value: string): string => (value.startsWith("/") ? value : `/${value}`);
+
+const requireProviderCore = (input: ProviderFactoryInput): { baseUrl: string; apiKey: string; model: string } => {
+  if (!input.baseUrl) {
+    throw new Error("Missing required provider field: baseUrl");
+  }
+  if (!input.apiKey) {
+    throw new Error("Missing required provider field: apiKey");
+  }
+  if (!input.model) {
+    throw new Error("Missing required provider field: model");
+  }
+
+  return {
+    baseUrl: input.baseUrl,
+    apiKey: input.apiKey,
+    model: input.model
+  };
+};
+
+const parseJsonHeaders = (value: string | undefined): Record<string, string> | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = JSON.parse(value) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("LLM_EXTRA_HEADERS_JSON must be a JSON object");
+  }
+
+  const entries = Object.entries(parsed);
+  for (const [, headerValue] of entries) {
+    if (typeof headerValue !== "string") {
+      throw new Error("LLM_EXTRA_HEADERS_JSON values must be strings");
+    }
+  }
+
+  return Object.fromEntries(entries) as Record<string, string>;
+};
+
 export const createProvider = (input: ProviderFactoryInput): LlmProvider => {
   if (input.provider === "mock") {
     return new MockProvider();
@@ -412,10 +455,6 @@ export const createProvider = (input: ProviderFactoryInput): LlmProvider => {
   });
 };
 
-export const createProviderFromEnv = (env: NodeJS.ProcessEnv = process.env): LlmProvider => {
-  return createProvider(getProviderRuntimeConfigFromEnv(env));
-};
-
 export const getProviderRuntimeConfigFromEnv = (env: NodeJS.ProcessEnv = process.env): ProviderRuntimeConfig => {
   const provider = (env.LLM_PROVIDER ?? "mock") as ProviderFactoryInput["provider"];
   const apiKey = env.LLM_API_KEY;
@@ -432,44 +471,34 @@ export const getProviderRuntimeConfigFromEnv = (env: NodeJS.ProcessEnv = process
   };
 };
 
-const requireProviderCore = (input: ProviderFactoryInput): { baseUrl: string; apiKey: string; model: string } => {
-  if (!input.baseUrl) {
-    throw new Error("Missing required provider field: baseUrl");
-  }
-  if (!input.apiKey) {
-    throw new Error("Missing required provider field: apiKey");
-  }
-  if (!input.model) {
-    throw new Error("Missing required provider field: model");
-  }
-
-  return {
-    baseUrl: input.baseUrl,
-    apiKey: input.apiKey,
-    model: input.model
-  };
+export const createProviderFromEnv = (env: NodeJS.ProcessEnv = process.env): LlmProvider => {
+  return createProvider(getProviderRuntimeConfigFromEnv(env));
 };
 
-const stripTrailingSlash = (value: string): string => value.replace(/\/+$/, "");
+// Re-export gateway provider
+export {
+  GatewayLLMProvider,
+  createGatewayProvider,
+  createGatewayProviderFromEnv
+} from "./gateway-provider.js";
 
-const normalizePath = (value: string): string => (value.startsWith("/") ? value : `/${value}`);
+export type {
+  GatewayLLMConfig,
+  CircuitBreakerConfig,
+  FallbackConfig,
+  LLMMetrics,
+  GatewayProviderFactoryInput
+} from "./gateway-provider.js";
 
-const parseJsonHeaders = (value: string | undefined): Record<string, string> | undefined => {
-  if (!value) {
-    return undefined;
-  }
-
-  const parsed = JSON.parse(value) as unknown;
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("LLM_EXTRA_HEADERS_JSON must be a JSON object");
-  }
-
-  const entries = Object.entries(parsed);
-  for (const [, headerValue] of entries) {
-    if (typeof headerValue !== "string") {
-      throw new Error("LLM_EXTRA_HEADERS_JSON values must be strings");
-    }
-  }
-
-  return Object.fromEntries(entries) as Record<string, string>;
+/**
+ * Create provider for Architect (dev tools) with optional separate model.
+ * Uses LLM_ARCHITECT_MODEL if set, otherwise falls back to LLM_MODEL.
+ */
+export const createArchitectProviderFromEnv = (env: NodeJS.ProcessEnv = process.env): LlmProvider => {
+  const baseConfig = getProviderRuntimeConfigFromEnv(env);
+  return createProvider({
+    ...baseConfig,
+    model: env.LLM_ARCHITECT_MODEL ?? baseConfig.model
+  });
 };
+

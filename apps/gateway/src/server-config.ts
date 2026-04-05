@@ -24,4 +24,10 @@ export const serverConfig = {
    * the periodic trigger (chronicler will still run at session end).
    */
   chroniclerEventInterval: 20,
+
+  /**
+   * How often to log LLM metrics (queue depth, latency, circuit breaker state).
+   * Set to 0 to disable periodic logging.
+   */
+  llmMetricsLogIntervalMs: 60000, // 1 minute
 } as const;

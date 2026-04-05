@@ -5,7 +5,14 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
 import { EngineRuntime } from "@opendungeon/engine-core";
-import { getProviderRuntimeConfigFromEnv, createProviderFromEnv } from "@opendungeon/providers-llm";
+import {
+  getProviderRuntimeConfigFromEnv,
+  createProviderFromEnv,
+  createProvider,
+  createGatewayProviderFromEnv,
+  createArchitectProviderFromEnv,
+  type LLMMetrics
+} from "@opendungeon/providers-llm";
 import { ArchitectRuntime, ArchitectOperationExecutor } from "@opendungeon/architect";
 import { loadGameModuleFromPath, type LoadedGameModule } from "./module-loader.js";
 import { serverConfig } from "./server-config.js";
@@ -162,7 +169,33 @@ type RuntimeContext = {
 
 const createRuntimeContext = async (): Promise<RuntimeContext> => {
   const loadedModule = await loadGameModuleFromPath(process.env.GAME_MODULE_PATH);
-  const runtime = new EngineRuntime(loadedModule.gameModule);
+
+  // Create primary provider
+  const primaryProvider = createProviderFromEnv();
+
+  // Create optional fallback provider
+  const fallbackProvider = process.env.GATEWAY_LLM_FALLBACK_PROVIDER
+    ? createProvider({
+        provider: process.env.GATEWAY_LLM_FALLBACK_PROVIDER as "openai-compatible" | "anthropic-compatible",
+        baseUrl: process.env.GATEWAY_LLM_FALLBACK_BASE_URL,
+        apiKey: process.env.GATEWAY_LLM_FALLBACK_API_KEY,
+        model: process.env.GATEWAY_LLM_FALLBACK_MODEL,
+        endpointPath: process.env.GATEWAY_LLM_FALLBACK_ENDPOINT_PATH
+      })
+    : undefined;
+
+  // Create gateway provider with production safeguards
+  const gatewayProvider = createGatewayProviderFromEnv(primaryProvider, fallbackProvider);
+
+  // Log metrics periodically
+  if (serverConfig.llmMetricsLogIntervalMs > 0) {
+    setInterval(() => {
+      const metrics = gatewayProvider.getMetrics();
+      console.log("[LLM Metrics]", JSON.stringify(metrics));
+    }, serverConfig.llmMetricsLogIntervalMs);
+  }
+
+  const runtime = new EngineRuntime(loadedModule.gameModule, { provider: gatewayProvider });
   return { loadedModule, runtime };
 };
 
@@ -379,9 +412,11 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   // ActionProcessor wiring
   // ---------------------------------------------------------------------------
 
+  // Architect uses its own provider (can be different model from gateway)
+  const architectProvider = createProviderFromEnv();
   const architect = persistence.prisma
     ? {
-        runtime: new ArchitectRuntime({ provider: createProviderFromEnv() }),
+        runtime: new ArchitectRuntime({ provider: architectProvider }),
         executor: new ArchitectOperationExecutor(persistence.prisma)
       }
     : undefined;

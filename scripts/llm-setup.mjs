@@ -23,6 +23,11 @@ const PROVIDERS = [
     flow: "custom"
   },
   {
+    id: "anthropic-compatible",
+    label: "Anthropic-compatible",
+    flow: "anthropic"
+  },
+  {
     id: "mock",
     label: "Mock provider (local only)",
     flow: "mock"
@@ -203,135 +208,263 @@ const readCodexToken = () => {
   }
 };
 
-const applyConfig = (envState, values) => {
+const applyConfig = (envState, values, prefix = "") => {
   for (const [key, value] of Object.entries(values)) {
-    envState.map.set(key, value);
+    const fullKey = prefix ? `${prefix}_${key}` : key;
+    envState.map.set(fullKey, value);
   }
 };
 
-const printSummary = (values) => {
-  output.write("\nSaved LLM settings:\n");
+const printSummary = (values, title = "LLM settings") => {
+  output.write(`\n${title}:\n`);
   output.write(`  LLM_PROVIDER=${values.LLM_PROVIDER}\n`);
   output.write(`  LLM_BASE_URL=${values.LLM_BASE_URL}\n`);
   output.write(`  LLM_MODEL=${values.LLM_MODEL}\n`);
-  output.write(`  LLM_ENDPOINT_PATH=${values.LLM_ENDPOINT_PATH}\n`);
+  if (values.LLM_ENDPOINT_PATH) {
+    output.write(`  LLM_ENDPOINT_PATH=${values.LLM_ENDPOINT_PATH}\n`);
+  }
   output.write("  LLM_API_KEY=[hidden]\n");
+};
+
+const printFallbackSummary = (values) => {
+  output.write("\nFallback provider settings:\n");
+  output.write(`  GATEWAY_LLM_FALLBACK_PROVIDER=${values.GATEWAY_LLM_FALLBACK_PROVIDER}\n`);
+  output.write(`  GATEWAY_LLM_FALLBACK_BASE_URL=${values.GATEWAY_LLM_FALLBACK_BASE_URL}\n`);
+  output.write(`  GATEWAY_LLM_FALLBACK_MODEL=${values.GATEWAY_LLM_FALLBACK_MODEL}\n`);
+  if (values.GATEWAY_LLM_FALLBACK_ENDPOINT_PATH) {
+    output.write(`  GATEWAY_LLM_FALLBACK_ENDPOINT_PATH=${values.GATEWAY_LLM_FALLBACK_ENDPOINT_PATH}\n`);
+  }
+  output.write("  GATEWAY_LLM_FALLBACK_API_KEY=[hidden]\n");
+};
+
+const configureProvider = async (rl, providerType) => {
+  // Find provider config
+  const selected = PROVIDERS.find(p => p.id === providerType);
+  if (!selected) {
+    throw new Error(`Unknown provider type: ${providerType}`);
+  }
+
+  if (selected.flow === "mock") {
+    return {
+      LLM_PROVIDER: "mock",
+      LLM_BASE_URL: "",
+      LLM_API_KEY: "",
+      LLM_MODEL: "",
+      LLM_ENDPOINT_PATH: "",
+      LLM_ANTHROPIC_VERSION: "2023-06-01",
+      LLM_EXTRA_HEADERS_JSON: ""
+    };
+  }
+
+  if (selected.flow === "minimax") {
+    const apiKey = await ensureNonEmpty(rl, "MiniMax API key: ");
+    const baseUrl = await ensureNonEmpty(
+      rl,
+      "Base URL (default https://api.minimax.io/anthropic): ",
+      "https://api.minimax.io/anthropic"
+    );
+    const anthropicVersion = await ensureNonEmpty(rl, "Anthropic version (default 2023-06-01): ", "2023-06-01");
+    output.write("Checking available models (Anthropic-compatible)...\n");
+    const models = await probeAnthropicModels({ baseUrl, apiKey, anthropicVersion });
+    const model = await chooseModel(rl, models, "Model id (from MiniMax docs/dashboard): ");
+
+    return {
+      LLM_PROVIDER: "anthropic-compatible",
+      LLM_BASE_URL: baseUrl,
+      LLM_API_KEY: apiKey,
+      LLM_MODEL: model,
+      LLM_ENDPOINT_PATH: "/v1/messages",
+      LLM_ANTHROPIC_VERSION: anthropicVersion,
+      LLM_EXTRA_HEADERS_JSON: ""
+    };
+  }
+
+  if (selected.flow === "codex") {
+    output.write("\nCodex auth flow\n");
+    output.write("1) If needed, login in another terminal with: codex login\n");
+    output.write("2) This setup reads your access token from ~/.codex/auth.json\n\n");
+
+    const token = readCodexToken();
+    if (!token) {
+      throw new Error("Could not find Codex access token. Run 'codex login' first, then retry.");
+    }
+
+    const baseUrl = await ensureNonEmpty(rl, "Base URL (default https://api.openai.com/v1): ", "https://api.openai.com/v1");
+    output.write("Checking available models...\n");
+    const models = await probeModels({ baseUrl, apiKey: token });
+    const model = await chooseModel(rl, models, "Model id: ");
+
+    return {
+      LLM_PROVIDER: "openai-compatible",
+      LLM_BASE_URL: baseUrl,
+      LLM_API_KEY: token,
+      LLM_MODEL: model,
+      LLM_ENDPOINT_PATH: "/chat/completions",
+      LLM_ANTHROPIC_VERSION: "2023-06-01",
+      LLM_EXTRA_HEADERS_JSON: ""
+    };
+  }
+
+  if (selected.flow === "anthropic") {
+    const apiKey = await ensureNonEmpty(rl, "Anthropic API key: ");
+    const baseUrl = await ensureNonEmpty(
+      rl,
+      "Base URL (default https://api.anthropic.com/v1): ",
+      "https://api.anthropic.com/v1"
+    );
+    const anthropicVersion = await ensureNonEmpty(rl, "Anthropic version (default 2023-06-01): ", "2023-06-01");
+    output.write("Checking available models...\n");
+    const models = await probeAnthropicModels({ baseUrl, apiKey, anthropicVersion });
+    const model = await chooseModel(rl, models, "Model id: ");
+
+    return {
+      LLM_PROVIDER: "anthropic-compatible",
+      LLM_BASE_URL: baseUrl,
+      LLM_API_KEY: apiKey,
+      LLM_MODEL: model,
+      LLM_ENDPOINT_PATH: "/v1/messages",
+      LLM_ANTHROPIC_VERSION: anthropicVersion,
+      LLM_EXTRA_HEADERS_JSON: ""
+    };
+  }
+
+  // Custom OpenAI-compatible
+  const baseUrl = await ensureNonEmpty(rl, "Base URL: ");
+  const apiKey = await ensureNonEmpty(rl, "API key: ");
+  output.write("Checking available models...\n");
+  const models = await probeModels({ baseUrl, apiKey });
+  const model = await chooseModel(rl, models, "Model id: ");
+  const endpointPath = await ensureNonEmpty(rl, "Endpoint path (default /chat/completions): ", "/chat/completions");
+
+  return {
+    LLM_PROVIDER: "openai-compatible",
+    LLM_BASE_URL: baseUrl,
+    LLM_API_KEY: apiKey,
+    LLM_MODEL: model,
+    LLM_ENDPOINT_PATH: endpointPath,
+    LLM_ANTHROPIC_VERSION: "2023-06-01",
+    LLM_EXTRA_HEADERS_JSON: ""
+  };
 };
 
 const run = async () => {
   const rl = readline.createInterface({ input, output });
 
   try {
-    output.write("OpenDungeon LLM setup\n\n");
-    PROVIDERS.forEach((provider, index) => {
-      output.write(`${index + 1}) ${provider.label}\n`);
-    });
+    output.write("OpenDungeon LLM Setup\n");
+    output.write("=====================\n\n");
 
-    let selected;
-    while (!selected) {
-      const answer = (await rl.question("Choose provider: ")).trim();
-      const index = Number(answer);
-      if (Number.isInteger(index) && index >= 1 && index <= PROVIDERS.length) {
-        selected = PROVIDERS[index - 1];
+    // Step 1: Choose provider type
+    output.write("Which provider do you want to configure?\n");
+    output.write("1) Main (Primary) Provider - used for all AI responses\n");
+    output.write("2) Fallback Provider - backup when main provider fails\n");
+    output.write("3) Both Main and Fallback\n\n");
+
+    let setupMode;
+    while (!setupMode) {
+      const answer = (await rl.question("Choose (1-3): ")).trim();
+      if (answer === "1" || answer === "2" || answer === "3") {
+        setupMode = answer;
       }
     }
 
     const envState = loadEnvLocal();
 
-    if (selected.flow === "mock") {
-      applyConfig(envState, {
-        LLM_PROVIDER: "mock",
-        LLM_BASE_URL: "",
-        LLM_API_KEY: "",
-        LLM_MODEL: "",
-        LLM_ENDPOINT_PATH: "",
-        LLM_ANTHROPIC_VERSION: "2023-06-01",
-        LLM_EXTRA_HEADERS_JSON: ""
+    // Configure Main Provider
+    if (setupMode === "1" || setupMode === "3") {
+      output.write("\n--- Main Provider Setup ---\n\n");
+      PROVIDERS.forEach((provider, index) => {
+        output.write(`${index + 1}) ${provider.label}\n`);
       });
-      writeFileSync(ENV_LOCAL_PATH, stringifyEnv(envState), "utf8");
-      output.write("\nMock provider enabled in .env.local\n");
-      return;
-    }
 
-    if (selected.flow === "minimax") {
-      const apiKey = await ensureNonEmpty(rl, "MiniMax API key: ");
-      const baseUrl = await ensureNonEmpty(
-        rl,
-        "Base URL (default https://api.minimax.io/anthropic): ",
-        "https://api.minimax.io/anthropic"
-      );
-      const anthropicVersion = await ensureNonEmpty(rl, "Anthropic version (default 2023-06-01): ", "2023-06-01");
-      output.write("Checking available models (Anthropic-compatible)...\n");
-      const models = await probeAnthropicModels({ baseUrl, apiKey, anthropicVersion });
-      const model = await chooseModel(rl, models, "Model id (from MiniMax docs/dashboard): ");
-
-      const values = {
-        LLM_PROVIDER: "anthropic-compatible",
-        LLM_BASE_URL: baseUrl,
-        LLM_API_KEY: apiKey,
-        LLM_MODEL: model,
-        LLM_ENDPOINT_PATH: "/v1/messages",
-        LLM_ANTHROPIC_VERSION: anthropicVersion,
-        LLM_EXTRA_HEADERS_JSON: ""
-      };
-      applyConfig(envState, values);
-      writeFileSync(ENV_LOCAL_PATH, stringifyEnv(envState), "utf8");
-      printSummary(values);
-      output.write("\nNext: npm run llm:probe -w @opendungeon/gateway\n");
-      return;
-    }
-
-    if (selected.flow === "codex") {
-      output.write("\nCodex auth flow\n");
-      output.write("1) If needed, login in another terminal with: codex login\n");
-      output.write("2) This setup reads your access token from ~/.codex/auth.json\n\n");
-
-      const token = readCodexToken();
-      if (!token) {
-        throw new Error("Could not find Codex access token. Run 'codex login' first, then retry.");
+      let selectedProvider;
+      while (!selectedProvider) {
+        const answer = (await rl.question("Choose provider: ")).trim();
+        const index = Number(answer);
+        if (Number.isInteger(index) && index >= 1 && index <= PROVIDERS.length) {
+          selectedProvider = PROVIDERS[index - 1].id;
+        }
       }
 
-      const baseUrl = await ensureNonEmpty(rl, "Base URL (default https://api.openai.com/v1): ", "https://api.openai.com/v1");
-      output.write("Checking available models...\n");
-      const models = await probeModels({ baseUrl, apiKey: token });
-      const model = await chooseModel(rl, models, "Model id: ");
-
-      const values = {
-        LLM_PROVIDER: "openai-compatible",
-        LLM_BASE_URL: baseUrl,
-        LLM_API_KEY: token,
-        LLM_MODEL: model,
-        LLM_ENDPOINT_PATH: "/chat/completions",
-        LLM_ANTHROPIC_VERSION: "2023-06-01",
-        LLM_EXTRA_HEADERS_JSON: ""
-      };
-      applyConfig(envState, values);
-      writeFileSync(ENV_LOCAL_PATH, stringifyEnv(envState), "utf8");
-      printSummary(values);
-      output.write("\nNext: npm run llm:probe -w @opendungeon/gateway\n");
-      return;
+      if (selectedProvider === "mock") {
+        const values = {
+          LLM_PROVIDER: "mock",
+          LLM_BASE_URL: "",
+          LLM_API_KEY: "",
+          LLM_MODEL: "",
+          LLM_ENDPOINT_PATH: "",
+          LLM_ANTHROPIC_VERSION: "2023-06-01",
+          LLM_EXTRA_HEADERS_JSON: ""
+        };
+        applyConfig(envState, values);
+        writeFileSync(ENV_LOCAL_PATH, stringifyEnv(envState), "utf8");
+        output.write("\nMock provider enabled in .env.local\n");
+        
+        if (setupMode === "1") {
+          output.write("\nNext: npm run llm:probe -w @opendungeon/gateway\n");
+          return;
+        }
+      } else {
+        const values = await configureProvider(rl, selectedProvider);
+        applyConfig(envState, values);
+        writeFileSync(ENV_LOCAL_PATH, stringifyEnv(envState), "utf8");
+        printSummary(values, "Main Provider");
+      }
     }
 
-    const baseUrl = await ensureNonEmpty(rl, "Base URL: ");
-    const apiKey = await ensureNonEmpty(rl, "API key: ");
-    output.write("Checking available models...\n");
-    const models = await probeModels({ baseUrl, apiKey });
-    const model = await chooseModel(rl, models, "Model id: ");
-    const endpointPath = await ensureNonEmpty(rl, "Endpoint path (default /chat/completions): ", "/chat/completions");
+    // Configure Fallback Provider
+    if (setupMode === "2" || setupMode === "3") {
+      output.write("\n--- Fallback Provider Setup ---\n");
+      output.write("(Used when main provider is rate limited or unavailable)\n\n");
+      
+      PROVIDERS.forEach((provider, index) => {
+        output.write(`${index + 1}) ${provider.label}\n`);
+      });
 
-    const values = {
-      LLM_PROVIDER: "openai-compatible",
-      LLM_BASE_URL: baseUrl,
-      LLM_API_KEY: apiKey,
-      LLM_MODEL: model,
-      LLM_ENDPOINT_PATH: endpointPath,
-      LLM_ANTHROPIC_VERSION: "2023-06-01",
-      LLM_EXTRA_HEADERS_JSON: ""
-    };
-    applyConfig(envState, values);
-    writeFileSync(ENV_LOCAL_PATH, stringifyEnv(envState), "utf8");
-    printSummary(values);
-    output.write("\nNext: npm run llm:probe -w @opendungeon/gateway\n");
+      let selectedProvider;
+      while (!selectedProvider) {
+        const answer = (await rl.question("Choose fallback provider: ")).trim();
+        const index = Number(answer);
+        if (Number.isInteger(index) && index >= 1 && index <= PROVIDERS.length) {
+          selectedProvider = PROVIDERS[index - 1].id;
+        }
+      }
+
+      if (selectedProvider === "mock") {
+        output.write("\nNote: Mock provider is not recommended as a fallback.\n");
+        output.write("It's better to use a different real provider (e.g., Anthropic as fallback for OpenAI).\n\n");
+        const confirm = (await rl.question("Continue with mock anyway? (y/N): ")).trim().toLowerCase();
+        if (confirm !== "y" && confirm !== "yes") {
+          output.write("Skipping fallback configuration.\n");
+          if (setupMode === "2") {
+            output.write("No changes made.\n");
+            return;
+          }
+        }
+      }
+
+      const values = await configureProvider(rl, selectedProvider);
+      
+      // Convert to fallback env vars
+      const fallbackValues = {
+        GATEWAY_LLM_FALLBACK_PROVIDER: values.LLM_PROVIDER,
+        GATEWAY_LLM_FALLBACK_BASE_URL: values.LLM_BASE_URL,
+        GATEWAY_LLM_FALLBACK_API_KEY: values.LLM_API_KEY,
+        GATEWAY_LLM_FALLBACK_MODEL: values.LLM_MODEL,
+        GATEWAY_LLM_FALLBACK_ENDPOINT_PATH: values.LLM_ENDPOINT_PATH || "/chat/completions"
+      };
+
+      applyConfig(envState, fallbackValues);
+      writeFileSync(ENV_LOCAL_PATH, stringifyEnv(envState), "utf8");
+      printFallbackSummary(fallbackValues);
+    }
+
+    output.write("\n" + "=".repeat(50) + "\n");
+    output.write("Setup complete!\n");
+    output.write("\nTest your configuration:\n");
+    output.write("  npm run llm:probe -w @opendungeon/gateway\n");
+    output.write("\n");
+
   } finally {
     rl.close();
   }
