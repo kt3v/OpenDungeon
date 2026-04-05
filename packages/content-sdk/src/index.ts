@@ -1,5 +1,7 @@
 import type { ModuleManifest, SessionEndReason } from "@opendungeon/shared";
 
+export { loadSkillsDirSync } from "./node-utils.js";
+
 export type { SessionEndReason } from "@opendungeon/shared";
 
 // ---------------------------------------------------------------------------
@@ -53,6 +55,12 @@ export interface ActionResult {
   summaryPatch?: DungeonMasterSummaryPatch;
   /** When set the engine will run the session-end pipeline after this turn. */
   endSession?: SessionEndReason;
+  /**
+   * Set by the engine when a mechanic action (TypeScript or declarative skill)
+   * handled this turn. False/absent means the DM narrated freely without
+   * invoking any mechanic — useful for analytics and unhandled-intent detection.
+   */
+  handledByMechanic?: boolean;
 }
 
 export interface StatePatch {
@@ -97,6 +105,12 @@ export interface CharacterCreatedContext {
 export interface MechanicActionDef {
   /** Short human-readable description shown to the DM / UI. */
   description: string;
+  /**
+   * JSON Schema describing the parameters the DM should pass when invoking
+   * this action via `mechanicCall.args`. Optional — if absent the DM may
+   * call this action with no arguments.
+   */
+  paramSchema?: Record<string, unknown>;
   /**
    * Return `true` if the action is valid in the current context.
    * Return a string describing why it is NOT valid.
@@ -180,14 +194,119 @@ export interface GameModule {
   dm: DungeonMasterModuleConfig;
 
   /**
-   * Ordered list of mechanics. The engine calls hooks in this order.
+   * Ordered list of TypeScript mechanics. The engine calls hooks in this order.
    * Earlier mechanics take priority for action routing.
    */
   mechanics: Mechanic[];
+
+  /**
+   * Declarative skills loaded alongside TypeScript mechanics.
+   * Each skill is converted to a Mechanic by the engine at startup —
+   * no TypeScript code required for simple gameplay rules.
+   * Skills are processed after all TypeScript mechanics.
+   */
+  skills?: SkillSchema[];
 }
 
 /** Type-safe helper — returns the module as-is (identity). */
 export const defineGameModule = (module: GameModule): GameModule => module;
+
+// ---------------------------------------------------------------------------
+// Skill Schema — declarative mechanics (no TypeScript required)
+// ---------------------------------------------------------------------------
+
+/**
+ * Comparison operators for skill pre-condition checks.
+ * Numeric operators (>, >=, <, <=) coerce both sides to numbers before comparing.
+ */
+export type SkillValidationOperator =
+  | "truthy"  // worldState value is truthy — default when operator is omitted
+  | "falsy"   // worldState value is falsy
+  | "=="      // strict equality
+  | "!="      // strict inequality
+  | ">"       // greater than
+  | ">="      // greater than or equal
+  | "<"       // less than
+  | "<=";     // less than or equal
+
+/**
+ * Pre-condition check for a deterministic skill.
+ * Supports dot-path access (e.g. "inventory.length") and comparison operators.
+ *
+ * @example
+ * { "worldStateKey": "nearExit", "failMessage": "Reach an exit first." }
+ * { "worldStateKey": "gold", "operator": ">=", "value": 50, "failMessage": "Need 50 gold." }
+ * { "worldStateKey": "inventory.length", "operator": ">", "value": 0, "failMessage": "Empty-handed." }
+ */
+export interface SkillValidation {
+  /**
+   * Dot-path to the worldState value to check.
+   * Supports nested access: "player.level", "inventory.length", etc.
+   */
+  worldStateKey: string;
+  /**
+   * Comparison operator. Defaults to "truthy" when omitted —
+   * existing schemas without an operator continue to work unchanged.
+   */
+  operator?: SkillValidationOperator;
+  /** The value to compare against. Required for ==, !=, >, >=, <, <=. */
+  value?: unknown;
+  /** Returned to the player when the condition is not met. */
+  failMessage: string;
+}
+
+/** The fixed outcome applied when a deterministic skill is invoked. */
+export interface SkillOutcome {
+  message: string;
+  worldPatch?: Record<string, unknown>;
+  characterPatch?: Record<string, unknown>;
+  suggestedActions?: SuggestedAction[];
+  /** When set, the engine runs the session-end pipeline after this skill. */
+  endSession?: SessionEndReason;
+}
+
+/**
+ * Declarative skill schema — define mechanics as data instead of TypeScript.
+ *
+ * resolve: "ai"
+ *   The DM handles this skill narratively. The skill only contributes
+ *   `dmPromptExtension` to the system prompt. No mechanic action is registered.
+ *
+ * resolve: "deterministic"
+ *   The engine applies the fixed `outcome` when invoked. The skill appears
+ *   as a callable tool in the DM's available actions list.
+ */
+export interface SkillSchema {
+  /** Unique identifier. For deterministic skills, used as the action routing key. */
+  id: string;
+  /** Human-readable description shown to the DM when listing available tools. */
+  description: string;
+  /**
+   * Static text appended to the DM system prompt every turn.
+   * Use to inform the DM about this skill's rules and context.
+   */
+  dmPromptExtension?: string;
+  /** How this skill is resolved. */
+  resolve: "ai" | "deterministic";
+  /**
+   * JSON Schema for args the DM should pass when invoking this skill.
+   * Only relevant for resolve: "deterministic".
+   */
+  paramSchema?: Record<string, unknown>;
+  /**
+   * Fixed outcome applied when the skill is invoked.
+   * Required for resolve: "deterministic".
+   */
+  outcome?: SkillOutcome;
+  /**
+   * Optional pre-condition check.
+   * Only evaluated for resolve: "deterministic".
+   */
+  validate?: SkillValidation;
+}
+
+/** Type-safe helper — returns the skill schema as-is (identity). */
+export const defineSkill = (schema: SkillSchema): SkillSchema => schema;
 
 // ---------------------------------------------------------------------------
 // Suggested actions

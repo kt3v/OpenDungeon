@@ -1,72 +1,160 @@
 # Creating a Game
 
-A game in OpenDungeon is a separate package that implements the `GameModule` interface from `@opendungeon/content-sdk`. The engine loads it at startup and runs it — your game never needs to touch the engine internals.
+A game in OpenDungeon is a separate package that exports a `GameModule`. The engine loads it at startup — your game never touches engine internals.
 
 ---
 
 ## Quick start
 
-### 1. Scaffold a new game workspace
-
 ```bash
-# From the engine root
-pnpm create:game-module -- ../my-game
-
-# Or interactive mode
-pnpm create:game-module
-```
-
-This generates a starter project at the target path.
-
-### 2. Install dependencies
-
-```bash
+# Scaffold a new game workspace
+od create-module ../my-game
 cd ../my-game
 pnpm install
-```
 
-### 3. Point the engine at your game
-
-In the engine's `.env.local`:
-
-```env
+# Point the engine at your game
+# In the engine's .env.local:
 GAME_MODULE_PATH=../my-game
+
+# Run
+od start
 ```
 
-### 4. Run
-
-```bash
-# From the engine root
-pnpm start
-```
-
-The engine validates your `GameModule` at startup and fails fast with a clear error if the shape is wrong.
+The engine validates your `GameModule` on startup and fails fast with a clear error if anything is wrong.
 
 ---
 
 ## File structure
 
-A minimal game looks like this:
-
 ```
 my-game/
+  skills/                  ← JSON skill files — no TypeScript needed
+    look.json
+    bargain.json
   src/
-    index.ts               ← root export (defineGameModule)
+    index.ts               ← root export: defineGameModule(...)
     content/
-      classes.ts           ← character templates
+      classes.ts           ← character templates (hp, attributes per class)
       dm-config.ts         ← DM prompts, guardrails, tool policy
-    mechanics/
-      my-mechanic.ts       ← gameplay systems
+    mechanics/             ← TypeScript mechanics (complex stateful logic only)
+      extraction.ts
   manifest.json
   package.json
   tsconfig.json
 ```
 
+> `skills/` lives at the **package root**, not inside `src/`. This way the same path works from both source (`src/index.ts`) and compiled (`dist/index.js`) entry points — no build step needed for JSON files.
+
 ---
 
-## manifest.json
+## Two ways to add gameplay
 
-Every game must have a manifest:
+### Option A — JSON skills (recommended for most things)
+
+Drop a `.json` file in `skills/`. No imports, no compilation, no restart in dev mode.
+
+**`resolve: "ai"`** — tell the DM this concept exists; the DM handles outcomes narratively:
+
+```json
+{
+  "id": "bargain",
+  "description": "Negotiate prices or terms with an NPC",
+  "resolve": "ai",
+  "dmPromptExtension": "## Bargaining\nPlayers can haggle with merchants and NPCs.\nOn success set merchantRelation +1 in worldPatch, on failure -1."
+}
+```
+
+**`resolve: "deterministic"`** — fixed outcome, no LLM call:
+
+```json
+{
+  "id": "rest",
+  "description": "Rest to recover HP",
+  "resolve": "deterministic",
+  "validate": {
+    "worldStateKey": "campfireActive",
+    "failMessage": "You need a campfire to rest."
+  },
+  "outcome": {
+    "message": "You rest by the fire and feel restored.",
+    "worldPatch": { "campfireActive": false },
+    "characterPatch": { "hp": 100 }
+  }
+}
+```
+
+See [Mechanics → Skills](./mechanics.md#skills-json) for the full schema reference.
+
+### Option B — TypeScript mechanics
+
+For complex stateful logic that can't be expressed as a fixed outcome — cross-session persistence, multi-step state machines, intercepting DM output:
+
+```typescript
+// src/mechanics/extraction.ts
+export const extractionMechanic = defineMechanic({
+  id: "extraction",
+  hooks: {
+    onSessionStart: async () => ({ worldPatch: { sessionLoot: [], nearExit: false } }),
+    onActionResolved: async (result, ctx) => { /* collect loot from DM output */ },
+    onSessionEnd: async (ctx) => { /* persist loot on extraction_success */ }
+  },
+  actions: {
+    extract: {
+      description: "Exit the dungeon and keep your session loot",
+      validate: (ctx) => ctx.worldState.nearExit === true || "Reach an exit first.",
+      resolve: async () => ({ message: "You escape!", endSession: "extraction_success" })
+    }
+  }
+});
+```
+
+See [Mechanics → TypeScript mechanics](./mechanics.md#typescript-mechanics) for the full guide.
+
+---
+
+## `src/index.ts`
+
+The root export wires everything together:
+
+```typescript
+import { defineGameModule, loadSkillsDirSync } from "@opendungeon/content-sdk";
+import { dmConfig } from "./content/dm-config.js";
+import { availableClasses, getCharacterTemplate } from "./content/classes.js";
+import { extractionMechanic } from "./mechanics/extraction.js";
+
+export default defineGameModule({
+  manifest: {
+    name: "@my-org/my-game",
+    version: "0.1.0",
+    engine: "^1.0.0",
+    contentApi: "^2.0.0",
+    capabilities: ["extraction.v1"],
+    entry: "dist/index.js",
+    stateVersion: 1
+  },
+
+  initial: {
+    worldState: () => ({}) // shared world starts empty; mechanics set their own keys
+  },
+
+  characters: {
+    availableClasses,
+    getTemplate: getCharacterTemplate
+  },
+
+  dm: dmConfig,
+
+  // TypeScript mechanics — for stateful, complex logic
+  mechanics: [extractionMechanic],
+
+  // JSON skills — auto-loaded from skills/ at the package root
+  skills: loadSkillsDirSync(new URL("../skills", import.meta.url).pathname)
+});
+```
+
+---
+
+## `manifest.json`
 
 ```json
 {
@@ -74,7 +162,7 @@ Every game must have a manifest:
   "version": "0.1.0",
   "engine": "^1.0.0",
   "contentApi": "^2.0.0",
-  "capabilities": ["map.v1", "inventory.v1"],
+  "capabilities": ["extraction.v1"],
   "entry": "dist/index.js",
   "stateVersion": 1
 }
@@ -82,105 +170,33 @@ Every game must have a manifest:
 
 | Field | Description |
 |---|---|
-| `name` | Unique identifier for your game |
+| `name` | Unique identifier |
 | `version` | Your game's version |
 | `engine` | Compatible engine version range |
 | `contentApi` | Compatible content-sdk version range |
-| `capabilities` | Feature flags your game supports (informational) |
-| `entry` | Built entry point, relative to the package root |
+| `capabilities` | Feature flags (informational, used by clients) |
+| `entry` | Compiled entry point, relative to package root |
 | `stateVersion` | Increment when your world state schema changes |
 
 ---
 
-## package.json
+## `content/dm-config.ts`
 
-```json
-{
-  "name": "@my-org/my-game",
-  "version": "0.1.0",
-  "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
-  },
-  "dependencies": {
-    "@opendungeon/content-sdk": "^2.0.0"
-  }
-}
-```
-
-If developing alongside the engine repo, use a local path reference:
-
-```json
-"@opendungeon/content-sdk": "file:../opendungeon/packages/content-sdk"
-```
-
----
-
-## Implementing GameModule
-
-`src/index.ts` is the root export. Use `defineGameModule()` for full TypeScript type checking:
-
-```typescript
-import { defineGameModule } from "@opendungeon/content-sdk";
-import { dmConfig } from "./content/dm-config.js";
-import { availableClasses, getCharacterTemplate } from "./content/classes.js";
-import { combatMechanic } from "./mechanics/combat.js";
-import { extractionMechanic } from "./mechanics/extraction.js";
-
-import manifest from "../manifest.json" assert { type: "json" };
-
-export default defineGameModule({
-  manifest,
-
-  initial: {
-    // World state for a brand-new campaign
-    worldState: () => ({
-      location: "dungeon_entrance",
-      floor: 1,
-      sessionLoot: [],
-      nearExit: false
-    })
-  },
-
-  characters: {
-    availableClasses: ["Warrior", "Mage", "Ranger"],
-    getTemplate: getCharacterTemplate
-  },
-
-  dm: dmConfig,
-
-  // Mechanics are evaluated in order
-  mechanics: [combatMechanic, extractionMechanic]
-});
-```
-
----
-
-## DM config (`content/dm-config.ts`)
-
-The DM config controls how the LLM behaves for your game:
+Controls how the LLM Dungeon Master behaves:
 
 ```typescript
 import type { DungeonMasterModuleConfig } from "@opendungeon/content-sdk";
 
 export const dmConfig: DungeonMasterModuleConfig = {
-  // Use a template for dynamic values (e.g. campaignTitle)
   promptTemplate: {
     lines: [
       "You are the Dungeon Master for {{campaignTitle}}.",
       "Tone: dark fantasy, terse, no mercy.",
       "",
-      "Output: valid JSON only.",
-      "Required: message (string).",
-      "Optional: toolCalls, worldPatch, summaryPatch, suggestedActions."
+      "Respond with valid JSON only. Required field: message (string).",
+      "Optional: toolCalls, worldPatch, summaryPatch, suggestedActions, mechanicCall."
     ]
   },
-
-  // Or use a static string
-  // systemPrompt: "You are the Dungeon Master...",
 
   toolPolicy: {
     allowedTools: ["update_world_state", "set_summary", "set_suggested_actions"],
@@ -190,44 +206,27 @@ export const dmConfig: DungeonMasterModuleConfig = {
 
   guardrails: {
     maxSuggestedActions: 4,
-    maxSummaryChars: 220,
-    maxWorldPatchKeys: 20
+    maxSummaryChars: 220
   },
 
-  // Fallback actions when DM provides none
   defaultSuggestedActions: [
-    { id: "look", label: "Look Around", prompt: "look around" },
-    { id: "advance", label: "Advance", prompt: "move forward" }
+    { id: "look", label: "Look Around", prompt: "look around carefully" }
   ],
 
-  // Dynamic suggested actions based on world state
+  // Dynamic suggestions based on world state
   suggestedActionStrategy: ({ state }) => {
-    const actions = [
-      { id: "advance", label: "Advance", prompt: "move forward" }
-    ];
+    const actions = [{ id: "look", label: "Look Around", prompt: "look around" }];
     if (state.nearExit) {
-      actions.unshift({ id: "extraction.extract", label: "Extract", prompt: "exit the dungeon" });
+      actions.unshift({ id: "skills.extract", label: "Extract", prompt: "exit the dungeon" });
     }
-    return actions.slice(0, 4);
+    return actions;
   }
 };
 ```
 
-### DM tool calls
-
-The LLM can invoke three tools in its response:
-
-| Tool | Purpose | Key args |
-|---|---|---|
-| `update_world_state` | Patch the world state | `patch: Record<string, unknown>` |
-| `set_summary` | Update the session summary | `shortSummary: string`, `latestBeat?: string` |
-| `set_suggested_actions` | Set the next suggested actions | `actions: SuggestedAction[]` |
-
-The engine applies guardrails to all tool call output before touching state.
-
 ---
 
-## Character classes (`content/classes.ts`)
+## `content/classes.ts`
 
 ```typescript
 import type { CharacterTemplate } from "@opendungeon/content-sdk";
@@ -235,43 +234,35 @@ import type { CharacterTemplate } from "@opendungeon/content-sdk";
 export const availableClasses = ["Warrior", "Mage", "Ranger"];
 
 const templates: Record<string, CharacterTemplate> = {
-  Warrior: { level: 1, hp: 130, attributes: { strength: 14, agility: 8 } },
-  Mage:    { level: 1, hp:  80, attributes: { strength:  7, intellect: 14 } },
-  Ranger:  { level: 1, hp: 110, attributes: { agility: 12, strength: 10 } }
-};
-
-const fallback: CharacterTemplate = {
-  level: 1, hp: 100, attributes: { strength: 10, agility: 10 }
+  Warrior: { level: 1, hp: 130, attributes: { strength: 14 } },
+  Mage:    { level: 1, hp:  80, attributes: { intellect: 14 } },
+  Ranger:  { level: 1, hp: 110, attributes: { agility: 12 } }
 };
 
 export const getCharacterTemplate = (className: string): CharacterTemplate =>
-  templates[className] ?? fallback;
+  templates[className] ?? { level: 1, hp: 100 };
 ```
 
 ---
 
-## Keeping engine and game in sync
+## Growing your game over time
 
-Since your game is a separate repo, you can update the engine independently:
+After players have been playing, use the Architect to discover what they're trying to do that no mechanic handles:
 
 ```bash
-# In the engine repo
-git pull
-
-# Bump content-sdk version if the interface changed
-# In your game's package.json, update the version and reinstall
-npm install
+od architect analyze --campaign <id> --min-count 3
 ```
 
-The engine validates your `manifest.json` at startup against `moduleManifestSchema`. If the `contentApi` version is incompatible, it fails with a clear message.
+This reads session logs, groups unhandled player intents by pattern, and generates suggested `SkillSchema` JSON files. Review the suggestions, move the ones you like to `skills/`, and they're live on next restart.
 
 ---
 
-## Reference implementation
+## Reference
 
-`packages/game-classic` in this repo is the reference game. Study it to understand:
-- How to structure content files
-- How to write mechanics (exploration, extraction)
-- How the DM config interacts with mechanics via `dmPromptExtension`
+`packages/game-classic` in this repo is the reference implementation. It shows:
+- A complete `defineGameModule` with skills + mechanics
+- The extraction mechanic (cross-session loot persistence)
+- The location mechanic (per-player position in a shared world)
+- DM config with `suggestedActionStrategy`
 
-See [mechanics.md](./mechanics.md) for a full guide on writing mechanics.
+See [Mechanics](./mechanics.md) for a full guide on both JSON skills and TypeScript mechanics.

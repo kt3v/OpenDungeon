@@ -1,117 +1,137 @@
-# OpenDungeon 🐉🛡️
+# OpenDungeon
 
-**OpenDungeon** is a full-stack, LLM-powered RPG engine for creating procedurally generated and narrative-driven games. It separates core engine logic from game content, allowing you to build rich multiplayer experiences with AI as your Dungeon Master.
+An open-source engine for multiplayer, AI-powered tabletop RPG campaigns.
 
-[![npm version](https://img.shields.io/npm/v/opendungeon.svg)](https://www.npmjs.com/package/opendungeon)
+The engine handles the hard parts — LLM orchestration, multiplayer world state, session management, persistence. You handle the fun parts — mechanics, lore, characters, rules.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-## ✨ Why OpenDungeon?
-
-- **AI-Native**: Built from the ground up to integrate Large Language Models (OpenAI, Anthropic, etc.) into gameplay.
-- **Engine-First Philosophy**: Clear separation between core mechanics and game content (modules).
-- **Multiplayer Ready**: Designed to scale sessions and manage shared world states across players.
-- **Extensible SDK**: Define your own classes, items, locations, and narrative hooks using the `content-sdk`.
 
 ---
 
-## 🚀 Getting Started
+## How it works
 
-### For Game Developers (Usage)
+Your game is a separate package (or folder) that you plug into the engine. The engine never touches your game code — it loads it at startup and calls well-defined hooks.
 
-The easiest way to build a game with OpenDungeon is to install it as a dependency:
-
-```bash
-npm install opendungeon
+```
+OpenDungeon engine  ←  your-game/
+   (this repo)            skills/         ← JSON rules, no code needed
+                          src/mechanics/  ← TypeScript for complex logic
+                          src/index.ts    ← exports defineGameModule(...)
 ```
 
-**Quick Example:**
+The AI Dungeon Master receives the player's action, sees the list of available mechanics as tools, and decides: invoke a mechanic deterministically, or narrate freely. Players can write in any language or phrasing — the DM understands intent, not keywords.
 
-```typescript
-import { DungeonMaster, createLlmProvider } from 'opendungeon';
+---
 
-// 1. Setup AI
-const llm = createLlmProvider({ type: 'openai', apiKey: process.env.OPENAI_API_KEY });
+## Quick start
 
-// 2. Initialize Engine
-const dm = new DungeonMaster({ llmProvider: llm });
-
-// 3. Process Player Action
-const result = await dm.processAction(currentState, { actionText: "explore the ruins" });
-console.log(result.event.message);
-```
-
-### For Engine Contributors (Development)
-
-If you want to contribute to the engine or run the reference implementation locally:
-
-Ensure you have [Docker](https://www.docker.com/) and [pnpm](https://pnpm.io/) installed.
+**Prerequisites:** Node.js 20+, Docker, pnpm
 
 ```bash
-# 1. Clone and install
 git clone https://github.com/kt3v/OpenDungeon.git
 cd OpenDungeon
 pnpm install
 
-# 2. Build the project
-pnpm build
-
-# 3. Check and Setup
-pnpm doctor
-od setup
-
-# 4. Launch Development Environment
-od start
+od setup        # creates .env.local, starts Postgres, runs migrations
+od configure llm  # pick your LLM provider interactively
+od start        # gateway :3001, web UI :3000
 ```
-Open `http://localhost:3000` to start your first campaign in the web client.
+
+Open `http://localhost:3000` to create your first campaign.
 
 ---
 
-## 🏗 Project Ecosystem
+## Building a game
 
-OpenDungeon is a monorepo consisting of several specialized packages:
-
-- **`opendungeon`**: The primary "umbrella" package for developers.
-- **`@opendungeon/engine-core`**: The heart of the platform. Orchestrates turns and LLM interactions.
-- **`@opendungeon/content-sdk`**: The API surface for game developers.
-- **`@opendungeon/architect`**: AI-powered world building and campaign generation.
-- **`@opendungeon/devtools`**: CLI tools (`od`) for managing modules and campaigns.
-- **`@opendungeon/providers-llm`**: Abstraction layer for AI models.
-
----
-
-## 🚀 CLI Usage (`od`)
-
-The `od` command-line tool (provided by `@opendungeon/devtools`) is the primary way to manage your OpenDungeon environment:
-
-- **`od setup`**: First-time initialization (Docker, environment, database).
-- **`od start`**: Launch the engine services (gateway and web UI) in the background.
-- **`od stop`**: Shut down all background services.
-- **`od status`**: Check which services are running and their addresses.
-- **`od logs [service]`**: View logs for `gateway` or `web`.
-- **`od configure llm`**: Interactive AI provider setup.
-- **`od reset`**: Wipe all local state and start fresh.
-
-## 🛠 Creating Your Own Module
-
-OpenDungeon loads gameplay from a module path. To create a new game module:
+The fastest way to add gameplay is with a JSON skill file — no TypeScript, no compilation:
 
 ```bash
-# Using the devtools CLI
-pnpm create:game-module ../my-new-game
+od create-module ../my-game
+cd ../my-game
 ```
 
-See [Creating a Game](docs/creating-a-game.md) for more details.
+Drop a file in `skills/`:
+
+```json
+// skills/bargain.json
+{
+  "id": "bargain",
+  "description": "Negotiate prices or terms with an NPC",
+  "resolve": "ai",
+  "dmPromptExtension": "## Bargaining\nPlayers can haggle. Track result in worldPatch: merchantRelation (+1/-1)."
+}
+```
+
+Restart the engine — the skill is live. The DM now knows this mechanic exists and will invoke it when the player tries to negotiate, regardless of how they phrase it.
+
+For more control, use `resolve: "deterministic"` with a fixed outcome:
+
+```json
+// skills/rest.json
+{
+  "id": "rest",
+  "description": "Rest at a campfire to recover",
+  "resolve": "deterministic",
+  "validate": { "worldStateKey": "campfireActive", "failMessage": "No campfire nearby." },
+  "outcome": {
+    "message": "You rest by the fire and recover your strength.",
+    "worldPatch": { "campfireActive": false },
+    "characterPatch": { "hp": 100 }
+  }
+}
+```
+
+For stateful cross-session logic, write a TypeScript mechanic. See [Creating a Game](docs/creating-a-game.md) and [Mechanics](docs/mechanics.md).
 
 ---
 
-## 📖 Documentation
+## Developer tooling (`od`)
 
-- [Architecture](docs/architecture.md) — Detailed system design.
-- [Creating a Game](docs/creating-a-game.md) — Guide for module developers.
-- [Mechanics](docs/mechanics.md) — How to extend gameplay logic.
-- [LLM Setup](docs/llm-polish-plan.md) — Configuring AI providers.
+```
+od setup                                    First-time setup
+od start [full|gateway|web]                 Start services
+od stop                                     Stop services
+od status                                   Show running services and config
+od logs [gateway|web] [-f]                  View logs
+od configure [llm|ports|module]             Change settings
+od reset                                    Wipe all local state
 
-## ⚖️ License
+od architect --campaign <id> [--apply]      Seed world lore interactively
+od architect analyze --campaign <id>        Find unhandled intents, suggest skills
+od create-module <dir>                      Scaffold a new game workspace
+od validate-module <manifest.json>          Validate module manifest
+```
 
-This project is licensed under the [MIT License](LICENSE).
-Built with ❤️ by [indie indie](https://github.com/kt3v).
+### `od architect analyze`
+
+After your game has been played, discover what players are trying to do that no mechanic covers:
+
+```bash
+od architect analyze --campaign abc123 --min-count 3
+```
+
+The command reads session logs, groups unhandled intents by pattern, and asks the Architect LLM to generate `SkillSchema` suggestions. Review them interactively, save the ones you like, move them to `skills/` — done.
+
+---
+
+## Documentation
+
+- [Creating a Game](docs/creating-a-game.md) — full guide for game developers
+- [Mechanics](docs/mechanics.md) — skills (JSON) and TypeScript mechanics
+- [Architecture](docs/architecture.md) — system design and turn pipeline
+
+---
+
+## Packages
+
+| Package | Purpose |
+|---------|---------|
+| `@opendungeon/content-sdk` | The only package your game needs to install |
+| `@opendungeon/engine-core` | Turn pipeline, DM orchestration, skill loader |
+| `@opendungeon/architect` | Lore extraction, chronicler, skill suggestion |
+| `@opendungeon/providers-llm` | LLM abstraction (OpenAI-compat, Anthropic-compat, mock) |
+| `@opendungeon/devtools` | `od` CLI |
+
+---
+
+Built with ❤️ by [indie indie](https://github.com/kt3v) · [MIT License](LICENSE)

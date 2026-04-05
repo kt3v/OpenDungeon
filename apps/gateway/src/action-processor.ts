@@ -293,6 +293,20 @@ export class ActionProcessor {
         lastSuggestedActions: session.suggestedActions
       });
 
+      // Log unhandled intents (fire-and-forget, no await — does not block the turn)
+      // An intent is "unhandled" when no mechanic handled it AND the client
+      // didn't explicitly route to one. The DM narrated freely instead.
+      if (!result.handledByMechanic && !mechanicActionId && this.prisma) {
+        void this.prisma.eventLog.create({
+          data: {
+            campaignId,
+            sessionId,
+            type: "intent.unhandled",
+            payload: { actionText } as object
+          }
+        });
+      }
+
       // ------------------------------------------------------------------
       // Phase C — Commit (serialised per campaign via promise chain)
       // ------------------------------------------------------------------

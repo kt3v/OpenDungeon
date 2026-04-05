@@ -1,66 +1,154 @@
-# Architecture Detail
+# Architecture
 
-OpenDungeon is built around the separation of engine runtime and game content. The core runtime provides the LLM bridge and turn-processing pipeline, while games are loaded as external plugins.
-
-## Runtime Architecture
-
-### Gateway vs Orchestrator
-
-The project includes two types of engine runtimes:
-
-1. **`apps/gateway`** (Stateful Server):
-   - The primary entry point for users and front-end clients.
-   - Manages persistence using Prisma and PostgreSQL.
-   - Handles authentication, campaign metadata, and user profiles.
-   - Recommended for single-instance or small-scale deployments.
-
-2. **`apps/orchestrator`** (Stateless Runner):
-   - A copy of the gateway runtime but without direct database dependencies.
-   - Designed for scalability in a multiplayer environment.
-   - One orchestrator instance can handle a single dedicated game session, reporting state back to the gateway.
-   - Ideal for horizontal scaling (e.g., containerized per-session workers).
-
-### Core Engine (`packages/engine-core`)
-
-The Engine is the central orchestrator that manages the turn-based loop:
-1. Receives player action.
-2. Runs pre-processing hooks from mechanics.
-3. Routes to the Dungeon Master (LLM) or specific mechanic actions.
-4. Processes LLM responses into game state patches.
-5. Runs post-processing hooks and returns the result.
+OpenDungeon separates engine runtime from game content. The engine loads your game at startup and runs it — your game never touches engine internals.
 
 ---
 
-## Package Roles & Dependencies
+## The big picture
 
-| Package | Role | Key Dependencies |
-|---------|------|------------------|
-| `shared` | Shared types and schemas | Zod |
-| `content-sdk` | Interface for Game Modules | `shared` |
-| `providers-llm` | AI model abstraction | - |
-| `engine-core` | Turn runtime and DM logic | `shared`, `content-sdk`, `providers-llm` |
-| `architect` | Content generation tools | `shared`, `providers-llm` |
-| `devtools` | CLI project management | - |
-
----
-
-## Game Modules
-
-A **Game Module** is a standalone package (like `packages/game-classic`) that defines:
-- **Mechanics**: Pluggable gameplay systems (e.g., combat, exploration, looting).
-- **DM Config**: Prompt templates and behavior rules for the AI.
-- **Content**: Static world definitions, classes, and initial states.
-
-The engine loads the module from a local path via `GAME_MODULE_PATH` environment variable.
-
-## Turn Pipeline Flow
-
-```mermaid
-graph TD
-    A[Player Action] --> B[Engine Runtime]
-    B --> C{Mechanic Hooks}
-    C --> D[Dungeon Master / LLM]
-    D --> E[State Patch Generation]
-    E --> F{Mechanic Post-Hooks}
-    F --> G[New World State]
 ```
+┌─────────────────────────────────────────────┐
+│                 your-game/                  │
+│   skills/          mechanics/    index.ts   │
+│   bargain.json     extraction.ts            │
+│   rest.json        location.ts              │
+└──────────────────────┬──────────────────────┘
+                       │  GAME_MODULE_PATH
+┌──────────────────────▼──────────────────────┐
+│              apps/gateway                   │
+│   HTTP API · action queue · world store     │
+├─────────────────────────────────────────────┤
+│           packages/engine-core              │
+│   EngineRuntime · DungeonMasterRuntime      │
+│   skill-loader · turn pipeline              │
+├─────────────────────────────────────────────┤
+│          packages/content-sdk               │
+│   GameModule · Mechanic · SkillSchema       │
+│   (the only package your game installs)     │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+## Turn pipeline
+
+Every player action flows through the same pipeline:
+
+```
+Player action
+      │
+      ▼
+onActionSubmitted hooks  ← all mechanics in order; can modify or block
+      │
+      ▼
+ explicit mechanicActionId? ──yes──► mechanic.validate → mechanic.resolve
+      │ no
+      ▼
+ DM (LLM) receives:
+   • action text
+   • worldState
+   • list of available mechanic tools   ← each mechanic's actions
+   • system prompt + skill extensions
+      │
+      ├── mechanicCall → mechanic.validate → mechanic.resolve
+      │
+      └── free narration → message + worldPatch
+      │
+      ▼
+onActionResolved hooks  ← all mechanics in order; can modify result
+      │
+      ▼
+if endSession → onSessionEnd hooks → persist
+      │
+      ▼
+ActionResult → player
+```
+
+**Key property:** the DM is the router. It sees all registered mechanic tools and decides whether to invoke one or handle the action narratively. This means players can write in any language or phrasing — the DM understands intent, not keywords.
+
+---
+
+## Package roles
+
+| Package | What it does |
+|---------|-------------|
+| `shared` | Zod schemas, shared types (`SessionEndReason`, `ModuleManifest`) |
+| `content-sdk` | Public API for game developers: `GameModule`, `Mechanic`, `SkillSchema`, sanitizers |
+| `providers-llm` | LLM abstraction: OpenAI-compat, Anthropic-compat, mock |
+| `engine-core` | Turn pipeline, `EngineRuntime`, `DungeonMasterRuntime`, skill-loader |
+| `architect` | Lore extraction, session chronicler, skill suggestion CLI |
+| `devtools` | `od` CLI: setup, start/stop, configure, architect tools |
+| `gateway` | HTTP API, action queue, world store, multi-player locking |
+| `web` | Next.js frontend (MVP) |
+
+Dependency graph (arrows = "depends on"):
+
+```
+shared ──► content-sdk ──► engine-core ──► gateway
+       ──► providers-llm ──► engine-core
+                         ──► architect ──► devtools
+```
+
+---
+
+## State model
+
+### World state vs character state
+
+Two kinds of mutable state exist per campaign:
+
+**World state** (`worldPatch`) — shared across all players. Stored in `WorldFact` rows per key. Examples: doors opened, bosses defeated, world lore, global quest flags.
+
+**Character state** (`characterPatch`) — private to one session. Stored in `Session.characterState`. Examples: `nearExit`, `sessionLoot`, personal buffs.
+
+Mechanics choose which they write to by returning `worldPatch` or `characterPatch` in their results.
+
+### Session vs campaign
+
+- **Campaign**: shared world, multiple players over time
+- **Session**: one character's current run — can end via death, extraction, or manually
+- One campaign → many sessions; each session has its own character state
+
+---
+
+## Skill system
+
+JSON skills and TypeScript mechanics coexist. At startup, `EngineRuntime` converts the `skills: SkillSchema[]` array into a single synthetic mechanic with id `"skills"`. This mechanic is appended after all TypeScript mechanics.
+
+Routing keys for skills follow `"skills.<skillId>"`, e.g. `"skills.camp"`, `"skills.bargain"`.
+
+`resolve: "ai"` skills only contribute `dmPromptExtension` (no action registered — DM narrates freely).  
+`resolve: "deterministic"` skills register a named action and appear in the DM's tools list.
+
+---
+
+## Concurrent multi-player
+
+Multiple sessions in the same campaign can execute LLM calls in parallel (no lock). World state commits are serialised per-campaign via a promise-chain mutex. This prevents conflicting patches:
+
+```
+Session A: LLM call ─────────────────────► commit (acquires lock)
+Session B: LLM call ──────────────────────────────► commit (waits, then applies to fresh state)
+```
+
+---
+
+## Architect
+
+The Architect is a background system for lore and analytics. It runs on two modes:
+
+**Chronicler** — fires after sessions, extracts named entities, writes to `LoreEntry` and `Milestone` tables. Future turns can retrieve relevant lore via RAG and inject it into the DM context.
+
+**Worldbuilder** — interactive CLI (`od architect`) for seeding campaign lore before launch.
+
+**Skill analyzer** — reads `EventLog` for `type: "intent.unhandled"` entries (written when DM narrates freely without a mechanic), groups by pattern, and asks an LLM to suggest new `SkillSchema` files for the game developer to review.
+
+---
+
+## Gateway vs Orchestrator
+
+The repo includes two server apps:
+
+**`apps/gateway`** — stateful server. Manages users, campaigns, sessions, persistence (Prisma + PostgreSQL). Recommended for all deployments.
+
+**`apps/orchestrator`** — stateless scaffold. No database dependency. Designed for horizontal scaling scenarios where each instance handles one session and reports state back to a coordinator. Not production-ready — exists as an architectural scaffold.

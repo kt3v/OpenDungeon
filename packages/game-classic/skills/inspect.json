@@ -1,0 +1,6 @@
+{
+  "id": "inspect",
+  "description": "Examine something specific in the environment closely",
+  "resolve": "ai",
+  "dmPromptExtension": "## Inspection\n- Last observed: {{worldState.lastObservation}}\nWhen the player inspects something, provide detailed information about it. Update relevant worldPatch keys based on what was discovered (e.g. `doorLocked: false`, `trapFound: true`)."
+}

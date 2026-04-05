@@ -1,7 +1,6 @@
-import { defineGameModule } from "@opendungeon/content-sdk";
+import { defineGameModule, loadSkillsDirSync } from "@opendungeon/content-sdk";
 import { dmConfig } from "./content/dm-config.js";
 import { availableClasses, getCharacterTemplate } from "./content/classes.js";
-import { explorationMechanic } from "./mechanics/exploration.js";
 import { extractionMechanic } from "./mechanics/extraction.js";
 import { locationMechanic } from "./mechanics/location.js";
 
@@ -37,6 +36,14 @@ export default defineGameModule({
    * Exploration handles deterministic look/listen actions (fast, no LLM).
    * Extraction intercepts action results to track loot and surfaces the extract action.
    */
-  // locationMechanic runs first: sets starting location and intercepts movement patches.
-  mechanics: [locationMechanic, explorationMechanic, extractionMechanic]
+  // locationMechanic handles character location and per-player position.
+  // extractionMechanic handles roguelite loot accumulation and session end.
+  // look / listen / inspect are now JSON skills — see skills/ directory.
+  mechanics: [locationMechanic, extractionMechanic],
+
+  // Declarative skills — drop a .json file into src/skills/ and it's picked up automatically.
+  // No TypeScript, no imports, no restarts needed in dev mode.
+  // JSON skill files live in skills/ at the package root — sibling of src/ and dist/.
+  // "../skills" resolves correctly from both src/index.ts (dev) and dist/index.js (prod).
+  skills: loadSkillsDirSync(new URL("../skills", import.meta.url).pathname)
 });

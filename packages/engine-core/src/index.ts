@@ -17,8 +17,10 @@ import type { SessionEndReason } from "@opendungeon/shared";
 import { moduleManifestSchema } from "@opendungeon/shared";
 import { createProviderFromEnv, type LlmProvider } from "@opendungeon/providers-llm";
 import { DungeonMasterRuntime } from "./dungeon-master.js";
+import { skillSchemasToMechanic } from "./skill-loader.js";
 
 export { DungeonMasterRuntime } from "./dungeon-master.js";
+export { skillSchemasToMechanic, SKILLS_MECHANIC_ID } from "./skill-loader.js";
 export type { DmTurnInput, DmTurnResult, DungeonMasterRuntimeOptions } from "./dungeon-master.js";
 
 export { extractLore, type LoreEntryPayload } from "./lore-extractor.js";
@@ -91,10 +93,19 @@ export interface EngineRuntimeOptions {
 export class EngineRuntime {
   private readonly gameModule: GameModule;
   private readonly dmRuntime: DungeonMasterRuntime;
+  /** Effective mechanics list: TypeScript mechanics + compiled skill schemas. */
+  private readonly mechanics: Mechanic[];
 
   constructor(gameModule: GameModule, options: EngineRuntimeOptions = {}) {
     moduleManifestSchema.parse(gameModule.manifest);
     this.gameModule = gameModule;
+
+    const skillsMechanic = gameModule.skills?.length
+      ? skillSchemasToMechanic(gameModule.skills)
+      : null;
+    this.mechanics = skillsMechanic
+      ? [...gameModule.mechanics, skillsMechanic]
+      : gameModule.mechanics;
 
     const provider = options.provider ?? createProviderFromEnv();
     this.dmRuntime = new DungeonMasterRuntime({
@@ -119,7 +130,7 @@ export class EngineRuntime {
     let worldPatch: Record<string, unknown> = {};
     let characterPatch: Record<string, unknown> = {};
 
-    for (const mechanic of this.gameModule.mechanics) {
+    for (const mechanic of this.mechanics) {
       const fn = mechanic.hooks?.onCharacterCreated;
       if (!fn) continue;
       const patch = await fn(ctx);
@@ -188,7 +199,7 @@ export class EngineRuntime {
     };
 
     // 1. Run onActionSubmitted hooks (any mechanic can modify or block)
-    for (const mechanic of this.gameModule.mechanics) {
+    for (const mechanic of this.mechanics) {
       if (!mechanic.hooks?.onActionSubmitted) continue;
       const next = await mechanic.hooks.onActionSubmitted(action, ctx);
       if (next === null) {
@@ -209,7 +220,7 @@ export class EngineRuntime {
     }
 
     // 3. Run onActionResolved hooks
-    for (const mechanic of this.gameModule.mechanics) {
+    for (const mechanic of this.mechanics) {
       if (!mechanic.hooks?.onActionResolved) continue;
       result = await mechanic.hooks.onActionResolved(result, ctx);
     }
@@ -250,34 +261,34 @@ export class EngineRuntime {
   // -------------------------------------------------------------------------
 
   /**
-   * Find the mechanic action resolver for the given PlayerAction.
-   * Returns a zero-arg function that runs the action, or null if not found.
+   * Route an explicit mechanic action from a client-submitted mechanicActionId
+   * (e.g. a UI button press). Returns null when no explicit id was provided —
+   * in that case the DM decides which mechanic (if any) to invoke.
    */
   private resolveMechanicAction(
     action: PlayerAction,
     ctx: ActionContext
   ): (() => Promise<ActionResult>) | null {
-    // Priority 1: explicit mechanicActionId e.g. "extraction.extract"
     if (action.mechanicActionId) {
-      const [mechanicId, actionId] = action.mechanicActionId.split(".");
-      const mechanic = this.gameModule.mechanics.find((m) => m.id === mechanicId);
-      const actionDef = mechanic?.actions?.[actionId ?? ""];
-      if (actionDef) {
-        return () => this.runMechanicAction(mechanic!, actionId!, actionDef, ctx);
-      }
+      return this.findMechanicActionById(action.mechanicActionId, ctx);
     }
+    return null;
+  }
 
-    // Priority 2: action text matches a registered action id (case-insensitive)
-    const textLower = action.text.trim().toLowerCase();
-    for (const mechanic of this.gameModule.mechanics) {
-      if (!mechanic.actions) continue;
-      for (const [actionId, actionDef] of Object.entries(mechanic.actions)) {
-        if (actionId.toLowerCase() === textLower) {
-          return () => this.runMechanicAction(mechanic, actionId, actionDef, ctx);
-        }
-      }
+  /**
+   * Resolve a mechanic action by its full routing id (e.g. "extraction.extract").
+   * Returns a zero-arg executor or null if the id is unknown.
+   */
+  private findMechanicActionById(
+    mechanicActionId: string,
+    ctx: ActionContext
+  ): (() => Promise<ActionResult>) | null {
+    const [mechanicId, actionId] = mechanicActionId.split(".");
+    const mechanic = this.mechanics.find((m) => m.id === mechanicId);
+    const actionDef = mechanic?.actions?.[actionId ?? ""];
+    if (mechanic && actionDef) {
+      return () => this.runMechanicAction(mechanic, actionId!, actionDef, ctx);
     }
-
     return null;
   }
 
@@ -293,7 +304,8 @@ export class EngineRuntime {
         return { message: valid };
       }
     }
-    return actionDef.resolve(ctx);
+    const result = await actionDef.resolve(ctx);
+    return { ...result, handledByMechanic: true };
   }
 
   private async runDm(
@@ -301,6 +313,14 @@ export class EngineRuntime {
     ctx: ActionContext
   ): Promise<ActionResult> {
     const systemPrompt = this.buildSystemPrompt(ctx.worldState, input.campaignTitle);
+
+    const availableMechanicActions = this.mechanics.flatMap((m) =>
+      Object.entries(m.actions ?? {}).map(([actionId, actionDef]) => ({
+        id: `${m.id}.${actionId}`,
+        description: actionDef.description,
+        ...(actionDef.paramSchema ? { paramSchema: actionDef.paramSchema } : {})
+      }))
+    );
 
     try {
       const dmResult = await this.dmRuntime.runTurn({
@@ -314,11 +334,21 @@ export class EngineRuntime {
         summary: input.summary,
         contextualLore: input.contextualLore,
         lastSuggestedActions: input.lastSuggestedActions,
+        availableMechanicActions: availableMechanicActions.length > 0
+          ? availableMechanicActions
+          : undefined,
         moduleConfig: {
           ...this.gameModule.dm,
           systemPrompt
         }
       });
+
+      // If DM chose to delegate to a mechanic, route there deterministically
+      if (dmResult.mechanicCall) {
+        const routed = this.findMechanicActionById(dmResult.mechanicCall.id, ctx);
+        if (routed) return routed(); // runMechanicAction sets handledByMechanic: true
+        // Unknown mechanic id — fall through to DM narrative
+      }
 
       return {
         message: dmResult.message,
@@ -358,7 +388,7 @@ export class EngineRuntime {
       ].join("\n");
     }
 
-    const extensions = this.gameModule.mechanics
+    const extensions = this.mechanics
       .filter((m) => typeof m.dmPromptExtension === "function")
       .map((m) => m.dmPromptExtension!({ worldState }))
       .filter(Boolean);
@@ -373,7 +403,7 @@ export class EngineRuntime {
     let worldPatch: Record<string, unknown> = {};
     let characterPatch: Record<string, unknown> = {};
 
-    for (const mechanic of this.gameModule.mechanics) {
+    for (const mechanic of this.mechanics) {
       const fn = mechanic.hooks?.[hook];
       if (!fn) continue;
       const patch = await fn(ctx);
@@ -396,7 +426,7 @@ export class EngineRuntime {
   private async runSessionEndHooks(ctx: SessionEndContext): Promise<StatePatch> {
     let worldPatch: Record<string, unknown> = {};
 
-    for (const mechanic of this.gameModule.mechanics) {
+    for (const mechanic of this.mechanics) {
       const fn = mechanic.hooks?.onSessionEnd;
       if (!fn) continue;
       const patch = await fn(ctx);

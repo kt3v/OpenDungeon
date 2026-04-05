@@ -1,472 +1,307 @@
 # Mechanics
 
-A **Mechanic** is the core extension primitive in OpenDungeon. It is a self-contained gameplay system that plugs into the engine's lifecycle without modifying any engine code.
-
-Think of it like a Unity `MonoBehaviour` or an Unreal `ActorComponent` — you define the behavior, the engine calls your hooks at the right moments.
+There are two ways to add gameplay to your OpenDungeon game: **JSON skills** and **TypeScript mechanics**. Start with JSON — it covers most cases without any code.
 
 ---
 
-## Interface
+## Skills (JSON)
 
-```typescript
-interface Mechanic {
-  id: string;
+A skill is a `.json` file in your game's `skills/` directory. The engine picks it up automatically on start.
 
-  hooks?: {
-    onCharacterCreated?(ctx: CharacterCreatedContext): Promise<StatePatch | void>;
-    onSessionStart?(ctx: BaseContext): Promise<StatePatch | void>;
-    onSessionEnd?(ctx: SessionEndContext): Promise<StatePatch | void>;
-    onActionSubmitted?(action: PlayerAction, ctx: ActionContext): Promise<PlayerAction | null>;
-    onActionResolved?(result: ActionResult, ctx: ActionContext): Promise<ActionResult>;
-  };
+### `resolve: "ai"` — let the DM handle it
 
-  actions?: Record<string, {
-    description: string;
-    validate?(ctx: ActionContext): true | string;
-    resolve(ctx: ActionContext): Promise<ActionResult>;
-  }>;
+Use this when the outcome depends on context and creative interpretation. The skill tells the DM the concept exists and provides rules — the DM handles the rest.
 
-  dmPromptExtension?(ctx: { worldState: Record<string, unknown> }): string;
+```json
+{
+  "id": "bargain",
+  "description": "Negotiate prices or terms with an NPC",
+  "resolve": "ai",
+  "dmPromptExtension": "## Bargaining\nPlayers can haggle with merchants and NPCs.\nOn success: set merchantRelation +1 in worldPatch. On failure: -1."
 }
 ```
 
-Use `defineMechanic()` for full type inference:
+The `description` is shown to the DM as a tool label. The `dmPromptExtension` is appended to the system prompt every turn — use it to teach the DM your mechanic's rules and any relevant `worldState` fields.
+
+### `resolve: "deterministic"` — fixed outcome, no LLM
+
+Use this when the outcome is always the same. The engine applies it without an LLM call.
+
+```json
+{
+  "id": "rest",
+  "description": "Rest at a campfire to recover HP",
+  "resolve": "deterministic",
+  "outcome": {
+    "message": "You rest by the fire. The warmth eases your wounds.",
+    "worldPatch": { "campfireActive": false },
+    "characterPatch": { "hp": 100 }
+  }
+}
+```
+
+### Validation
+
+Optionally require a worldState condition before the skill can be used:
+
+```json
+"validate": {
+  "worldStateKey": "campfireActive",
+  "failMessage": "You need a campfire to rest."
+}
+```
+
+Supported operators — add `"operator"` and `"value"` for more than a truthy check:
+
+```json
+{ "worldStateKey": "gold",             "operator": ">=", "value": 50,   "failMessage": "Need 50 gold." }
+{ "worldStateKey": "level",            "operator": ">=", "value": 3,    "failMessage": "Need level 3." }
+{ "worldStateKey": "inventory.length", "operator": ">",  "value": 0,    "failMessage": "Empty-handed." }
+{ "worldStateKey": "bossDefeated",     "operator": "==", "value": true, "failMessage": "Defeat the boss first." }
+```
+
+All operators: `truthy` (default), `falsy`, `==`, `!=`, `>`, `>=`, `<`, `<=`
+
+### Template interpolation
+
+Both `dmPromptExtension` and `outcome.message` support `{{worldState.*}}` expressions. They're evaluated against the current world state every turn:
+
+```json
+"dmPromptExtension": "## Inventory\nCurrent gold: {{worldState.gold}}\nItems carried: {{worldState.inventory.length}}"
+```
+
+Unknown paths silently resolve to empty string — the DM prompt stays clean.
+
+### Full skill schema reference
+
+```typescript
+interface SkillSchema {
+  id: string;                    // unique, snake_case
+  description: string;           // shown to DM as tool label (keep it short)
+  resolve: "ai" | "deterministic";
+  dmPromptExtension?: string;    // markdown appended to DM system prompt, supports {{worldState.*}}
+  paramSchema?: object;          // JSON Schema for args the DM can pass
+  validate?: {
+    worldStateKey: string;       // dot-path: "gold", "player.level", "inventory.length"
+    operator?: SkillValidationOperator;  // default: "truthy"
+    value?: unknown;
+    failMessage: string;
+  };
+  outcome?: {                    // required for resolve: "deterministic"
+    message: string;             // supports {{worldState.*}}
+    worldPatch?: Record<string, unknown>;
+    characterPatch?: Record<string, unknown>;
+    suggestedActions?: SuggestedAction[];
+    endSession?: SessionEndReason;
+  };
+}
+```
+
+### Loading skills in your game module
+
+```typescript
+import { defineGameModule, loadSkillsDirSync } from "@opendungeon/content-sdk";
+
+export default defineGameModule({
+  // ...
+  skills: loadSkillsDirSync(new URL("../skills", import.meta.url).pathname)
+});
+```
+
+`loadSkillsDirSync` reads all `*.json` files from the directory. Each file can be a single skill object or an array of skills. Invalid files are skipped with a console warning.
+
+> The `skills/` directory sits at your **package root** (sibling of `src/` and `dist/`), not inside `src/`. The path `"../skills"` resolves correctly from both `src/index.ts` (dev) and `dist/index.js` (production).
+
+---
+
+## TypeScript mechanics
+
+Use a TypeScript mechanic when JSON isn't enough: cross-session persistence, intercepting DM output, stateful multi-step logic.
+
+A mechanic is a plain object with an `id` and optional `hooks`, `actions`, and `dmPromptExtension`. Use `defineMechanic()` for full type inference:
 
 ```typescript
 import { defineMechanic } from "@opendungeon/content-sdk";
 
 export const myMechanic = defineMechanic({
   id: "my-mechanic",
-  // ...
+  hooks: { … },
+  actions: { … },
+  dmPromptExtension: ({ worldState }) => "…"
 });
 ```
 
----
+### Hooks
 
-## Hooks
+| Hook | When it runs | What it can do |
+|------|-------------|----------------|
+| `onCharacterCreated` | Once, when player joins a campaign | Give starting gear, init per-player state |
+| `onSessionStart` | Start of each session | Reset session-scoped state |
+| `onActionSubmitted` | Before every action | Modify or block the action |
+| `onActionResolved` | After every action (mechanic or DM) | Post-process result, add suggested actions |
+| `onSessionEnd` | When session ends | Persist loot, record stats |
 
-### `onCharacterCreated`
+Hooks from all mechanics run in the order mechanics appear in `mechanics: []`. Each hook receives the accumulated output of previous mechanics.
 
-Called once when a player creates a character for a campaign. There is no session yet at this point.
-
-Use it to give starting equipment, initialize per-player persistent state, or apply class-specific world patches before the first run.
+#### `onCharacterCreated`
 
 ```typescript
 onCharacterCreated: async (ctx) => {
-  const gear: Record<string, { id: string; label: string }[]> = {
-    Warrior: [{ id: "iron_shield", label: "Iron Shield" }],
-    Mage:    [{ id: "spell_tome",  label: "Worn Spell Tome" }],
-    Ranger:  [{ id: "quiver",     label: "Quiver of Arrows" }]
-  };
-
+  const gear = { Warrior: [{ id: "shield", label: "Iron Shield" }] };
   const startingGear = gear[ctx.character.className] ?? [];
-  if (startingGear.length === 0) return;
-
-  const persistedKey = `persistedLoot_${ctx.playerId}`;
-  const existing = Array.isArray(ctx.worldState[persistedKey])
-    ? ctx.worldState[persistedKey] as unknown[]
-    : [];
-
   return {
-    worldPatch: {
-      [persistedKey]: [...existing, ...startingGear]
-    }
+    worldPatch: { [`persistedLoot_${ctx.playerId}`]: startingGear }
   };
 }
 ```
 
-**Context:**
-```typescript
-{
-  tenantId: string;
-  campaignId: string;
-  playerId: string;
-  character: CharacterInfo;  // id, name, className, level, hp
-  worldState: Record<string, unknown>;
-}
-```
+No session exists yet at this point. Patch `worldPatch` to set up per-player persistent state.
 
-Note: no `sessionId` — character creation happens outside of a session.
-
----
-
-### `onSessionStart`
-
-Called once when a session is created. Use it to initialize session-scoped state.
+#### `onSessionStart`
 
 ```typescript
-onSessionStart: async (ctx) => {
-  return {
-    worldPatch: {
-      sessionLoot: [],
-      monstersDefeated: 0
-    }
-  };
-}
+onSessionStart: async (ctx) => ({
+  worldPatch: { sessionLoot: [], nearExit: false }
+})
 ```
 
-Return a `StatePatch` (with optional `worldPatch`) to apply changes to the world state before the session begins. Return nothing or `void` if no changes are needed.
+#### `onActionSubmitted`
 
-The engine applies patches from all mechanics in order, so each mechanic sees the accumulated state from previous ones.
-
----
-
-### `onSessionEnd`
-
-Called when a session ends — either via a mechanic action (`result.endSession`), or via `POST /sessions/:id/end`.
-
-The `ctx.reason` tells you why the session ended:
-
-| Reason | Description |
-|---|---|
-| `"extraction_success"` | Player successfully extracted from the dungeon |
-| `"player_death"` | Player died |
-| `"campaign_complete"` | Campaign objectives met |
-| `"abandoned"` | Session abandoned |
-| `"manual"` | Owner ended the session manually |
-
-```typescript
-onSessionEnd: async (ctx) => {
-  if (ctx.reason !== "extraction_success") {
-    return; // Lost run — no loot transfer
-  }
-
-  // Transfer session loot to persistent storage
-  const sessionLoot = Array.isArray(ctx.worldState.sessionLoot)
-    ? ctx.worldState.sessionLoot : [];
-  const persistedKey = `persistedLoot_${ctx.playerId}`;
-  const existing = Array.isArray(ctx.worldState[persistedKey])
-    ? ctx.worldState[persistedKey] as unknown[] : [];
-
-  return {
-    worldPatch: {
-      sessionLoot: [],
-      [persistedKey]: [...existing, ...sessionLoot]
-    }
-  };
-}
-```
-
----
-
-### `onActionSubmitted`
-
-Called before the action reaches the DM or any mechanic action resolver. Runs for every action.
-
-**Return the action** (possibly modified) to let it continue:
+Return the action (possibly modified) to continue, or `null` to block:
 
 ```typescript
 onActionSubmitted: async (action, ctx) => {
-  // Normalize action text
-  return { ...action, text: action.text.trim().toLowerCase() };
+  if (ctx.worldState.playerStunned) return null; // blocked, generic message shown
+  return action; // continue
 }
 ```
 
-**Return `null`** to block the action entirely:
+#### `onActionResolved`
 
-```typescript
-onActionSubmitted: async (action, ctx) => {
-  if (ctx.worldState.playerStunned) {
-    return null; // Engine returns a generic "blocked" message
-  }
-  return action;
-}
-```
-
-Multiple mechanics can chain this hook. The output of each becomes the input of the next.
-
----
-
-### `onActionResolved`
-
-Called after every resolved action — whether it was handled by a mechanic or the DM. Use it to post-process results.
+Runs after every turn — regardless of whether a mechanic or the DM handled it. This is the best hook for interpreting DM output:
 
 ```typescript
 onActionResolved: async (result, ctx) => {
-  // Collect loot the DM found during this turn
+  // The DM wrote lootFound into worldPatch — collect it
   const lootFound = result.worldPatch?.lootFound;
   if (Array.isArray(lootFound) && lootFound.length > 0) {
-    const current = Array.isArray(ctx.worldState.sessionLoot)
-      ? ctx.worldState.sessionLoot : [];
-
+    const current = Array.isArray(ctx.worldState.sessionLoot) ? ctx.worldState.sessionLoot : [];
     const { lootFound: _, ...restPatch } = result.worldPatch ?? {};
-    return {
-      ...result,
-      worldPatch: {
-        ...restPatch,
-        sessionLoot: [...current, ...lootFound]
-      }
-    };
+    return { ...result, worldPatch: { ...restPatch, sessionLoot: [...current, ...lootFound] } };
   }
   return result;
 }
 ```
 
-Multiple mechanics chain this hook. Each gets the result of the previous one.
+#### `onSessionEnd`
 
----
+```typescript
+onSessionEnd: async (ctx) => {
+  if (ctx.reason !== "extraction_success") return;
+  const sessionLoot = Array.isArray(ctx.worldState.sessionLoot) ? ctx.worldState.sessionLoot : [];
+  return {
+    worldPatch: {
+      sessionLoot: [],
+      [`persistedLoot_${ctx.playerId}`]: [...(ctx.worldState[`persistedLoot_${ctx.playerId}`] as unknown[] ?? []), ...sessionLoot]
+    }
+  };
+}
+```
 
-## Named actions
+Session end reasons: `"extraction_success"` · `"player_death"` · `"campaign_complete"` · `"abandoned"` · `"manual"`
 
-Mechanics can register named actions. The engine routes to these **before calling the DM**, so they are fast (no LLM call) and deterministic.
+### Named actions
+
+Mechanics can register actions that the engine invokes without an LLM call. The DM receives these as available tools and can call them when appropriate.
 
 ```typescript
 actions: {
   extract: {
     description: "Exit the dungeon and keep your session loot",
-
-    // validate() runs first — return true to allow, string to reject
-    validate: (ctx) => {
-      if (ctx.worldState.nearExit !== true) {
-        return "You must reach an exit point before you can extract.";
-      }
-      return true;
-    },
-
+    validate: (ctx) => ctx.worldState.nearExit === true || "Reach an exit first.",
     resolve: async (ctx) => {
-      const loot = Array.isArray(ctx.worldState.sessionLoot)
-        ? ctx.worldState.sessionLoot : [];
-
+      const count = (ctx.worldState.sessionLoot as unknown[] ?? []).length;
       return {
-        message: `You escape with ${loot.length} item(s).`,
-        endSession: "extraction_success"  // ← triggers onSessionEnd pipeline
+        message: `You escape with ${count} item(s).`,
+        endSession: "extraction_success"
       };
     }
   }
 }
 ```
 
+The routing key for a named action is `"<mechanicId>.<actionId>"`, e.g. `"extraction.extract"`.
+
 ### How routing works
 
-When a player submits an action, the engine checks in this order:
+```
+1. Client sends mechanicActionId (e.g. a UI button press)
+        → mechanic runs directly, no LLM call
 
-1. **Explicit routing** — `mechanicActionId` in the request body, e.g. `"extraction.extract"` (format: `"<mechanicId>.<actionId>"`). The client sends this when the player clicks a suggested action button.
-2. **Text match** — `actionText` exactly matches a registered action id (case-insensitive).
-3. **DM** — no match → send to LLM.
+2. No explicit mechanicActionId
+        → DM sees the player's action + list of all available mechanic tools
+        → DM decides: call a mechanic (mechanicCall) or narrate freely
 
-Mechanics earlier in the `mechanics: []` array take priority for text-match routing.
+3. onActionResolved hooks run on the result, regardless of source
+```
 
----
+The DM understands intent — players can write in any language or phrasing. You don't need to register every possible synonym for "look around".
 
-## DM prompt extension
+### `dmPromptExtension`
 
-Every mechanic can append text to the DM system prompt. This is called every turn and receives the current world state.
+A function that receives the current `worldState` and returns a markdown string appended to the DM system prompt every turn. Use it to give the DM the context it needs:
 
 ```typescript
 dmPromptExtension: ({ worldState }) => {
-  const loot = Array.isArray(worldState.sessionLoot)
-    ? worldState.sessionLoot : [];
-
+  const loot = Array.isArray(worldState.sessionLoot) ? worldState.sessionLoot : [];
   return [
     "## Extraction Rules",
-    "- Exit points exist in the dungeon. When the player reaches one, include `\"nearExit\": true` in worldPatch.",
-    "- When the player finds an item, add it to `lootFound` array in worldPatch.",
-    `- Current session loot: ${loot.length} item(s).`
+    "- When player reaches an exit: set `nearExit: true` in worldPatch.",
+    "- When player finds an item: add it to `lootFound` array in worldPatch.",
+    `- Session loot so far: ${loot.length} item(s).`
   ].join("\n");
 }
 ```
 
-The final system prompt is:
-```
-<base prompt from dm-config>
-
-<mechanic 1 extension>
-
-<mechanic 2 extension>
-```
-
-Use this to:
-- Tell the DM about new world state fields your mechanic uses
-- Provide the DM with mechanic-specific rules
-- Give the DM current counts or status it should reference in narration
-
----
-
-## Context types
-
-### `BaseContext`
-
-Available in `onSessionStart`:
+### `ActionResult`
 
 ```typescript
-{
-  tenantId: string;
-  campaignId: string;
-  sessionId: string;
-  playerId: string;
-  worldState: Record<string, unknown>;
-}
-```
-
-### `ActionContext`
-
-Available in `onActionSubmitted`, `onActionResolved`, and `actions.*.validate/resolve`:
-
-```typescript
-{
-  // All BaseContext fields, plus:
-  character: {
-    id: string;
-    name: string;
-    className: string;
-    level: number;
-    hp: number;
-  };
-  actionText: string;   // the original submitted text
-}
-```
-
-### `SessionEndContext`
-
-Available in `onSessionEnd`:
-
-```typescript
-{
-  // All BaseContext fields, plus:
-  reason: SessionEndReason;
-}
-```
-
----
-
-## ActionResult
-
-Every action resolver (mechanic or DM) returns an `ActionResult`:
-
-```typescript
-{
+interface ActionResult {
   message: string;                      // player-facing narration (required)
-  worldPatch?: Record<string, unknown>; // merged into session world state
-  suggestedActions?: SuggestedAction[]; // replaces current suggested actions
-  summaryPatch?: {
-    shortSummary: string;               // one-sentence session summary
-    latestBeat?: string;                // what just happened
-  };
-  endSession?: SessionEndReason;        // triggers session-end pipeline
+  worldPatch?: Record<string, unknown>; // merged into shared world state
+  characterPatch?: Record<string, unknown>; // merged into this session's character state only
+  suggestedActions?: SuggestedAction[]; // replaces current suggested action buttons
+  summaryPatch?: { shortSummary: string; latestBeat?: string };
+  endSession?: SessionEndReason;        // triggers the session-end pipeline
+  handledByMechanic?: boolean;          // set by engine; true when a mechanic handled this turn
 }
 ```
 
----
-
-## StatePatch
-
-Returned by `onSessionStart` and `onSessionEnd`:
-
-```typescript
-{
-  worldPatch?: Record<string, unknown>;
-}
-```
+`worldPatch` is **shared** — all players in the campaign see it. `characterPatch` is **private** — only visible to this session. Use `characterPatch` for session-local state like `nearExit`, `sessionLoot`, personal flags.
 
 ---
 
-## Mechanic ordering
+## Choosing between skills and mechanics
 
-Mechanics in the `mechanics: []` array are evaluated in order for all hooks and routing. This means:
+| Situation | Use |
+|-----------|-----|
+| Teaching the DM a concept (stealth, bargaining, diplomacy) | JSON skill, `resolve: "ai"` |
+| Simple action with a predictable outcome (rest, pick up item) | JSON skill, `resolve: "deterministic"` |
+| Cross-session persistence (loot that survives between runs) | TypeScript mechanic |
+| Intercepting and modifying DM output | TypeScript mechanic (`onActionResolved`) |
+| Blocking or modifying incoming actions | TypeScript mechanic (`onActionSubmitted`) |
+| Giving starting gear by character class | TypeScript mechanic (`onCharacterCreated`) |
 
-- **Hooks** run sequentially: mechanic 0 → mechanic 1 → ... Each gets the output of the previous one.
-- **Action routing** tries mechanic 0 first, then mechanic 1, etc. The first match wins.
-- **DM prompt extensions** are appended in array order.
-
-Put more specific or high-priority mechanics first. In `game-classic`:
-
-```typescript
-mechanics: [explorationMechanic, extractionMechanic]
-```
-
-`exploration` handles `look`/`listen`/`inspect_door` without calling the LLM. `extraction` tracks loot in `onActionResolved` and surfaces the extract action near exits.
-
----
-
-## Example: Full extraction mechanic
-
-The extraction mechanic from `game-classic` demonstrates all four extension points:
-
-```typescript
-export const extractionMechanic = defineMechanic({
-  id: "extraction",
-
-  hooks: {
-    // Reset session loot at the start of every run
-    onSessionStart: async () => ({
-      worldPatch: { sessionLoot: [], nearExit: false }
-    }),
-
-    // Collect loot the DM discovered, surface extract action near exits
-    onActionResolved: async (result, ctx) => {
-      // ... collect lootFound from worldPatch into sessionLoot
-      // ... if nearExit, inject extract into suggestedActions
-      return result;
-    },
-
-    // On successful extraction, persist loot across sessions
-    onSessionEnd: async (ctx) => {
-      if (ctx.reason !== "extraction_success") return;
-      // ... move sessionLoot into persistedLoot_<playerId>
-      return { worldPatch: { sessionLoot: [], [persistedKey]: [...] } };
-    }
-  },
-
-  // Named action — runs without calling the DM
-  actions: {
-    extract: {
-      description: "Exit the dungeon and keep your session loot",
-      validate: (ctx) => ctx.worldState.nearExit === true || "Not near an exit",
-      resolve: async (ctx) => ({
-        message: "You escape with your loot.",
-        endSession: "extraction_success"
-      })
-    }
-  },
-
-  // Teach the DM about extraction rules
-  dmPromptExtension: ({ worldState }) => `
-## Extraction Rules
-- Include "nearExit": true in worldPatch when the player reaches an exit.
-- Include "lootFound": [{id, label}] in worldPatch when the player finds items.
-- Current session loot: ${(worldState.sessionLoot as unknown[] ?? []).length} item(s).
-  `.trim()
-});
-```
-
----
-
-## Example: Simple deterministic mechanic
-
-Not every mechanic needs LLM involvement. The exploration mechanic handles `look`, `listen`, and `inspect_door` purely in code:
-
-```typescript
-export const explorationMechanic = defineMechanic({
-  id: "exploration",
-
-  actions: {
-    look: {
-      description: "Observe your surroundings",
-      resolve: async (ctx) => ({
-        message: "You scan the torchlit corridor...",
-        worldPatch: { lastObservation: "iron_door" },
-        suggestedActions: [
-          { id: "exploration.inspect_door", label: "Inspect door", prompt: "inspect the iron door" },
-          { id: "advance", label: "Move north", prompt: "push open the door" }
-        ]
-      })
-    }
-  }
-});
-```
-
-When the player clicks "Look Around", the engine routes to `exploration.look` and returns immediately — no LLM call, no latency.
+When in doubt, start with a JSON skill. You can always promote it to a TypeScript mechanic later if the logic grows complex.
 
 ---
 
 ## Tips
 
-**Keep mechanics focused.** One mechanic = one system. Don't put combat, inventory, and extraction in the same mechanic.
+**Namespace your worldState keys.** Multiple mechanics share the same flat object. Use prefixes: `persistedLoot_<playerId>`, `extraction_nearExit`, `location_current`.
 
-**Use `dmPromptExtension` to close the loop with the LLM.** If your mechanic reads `worldState.nearExit`, you need to tell the DM to write it. Otherwise the field will never appear.
+**Use `dmPromptExtension` to close the loop.** If your mechanic reads `worldState.nearExit`, teach the DM to write it. Otherwise the field will never appear.
 
-**Mechanic actions are for explicit player choices.** Use them for actions the player deliberately triggers (extract, revive, open inventory). Let the DM handle free-text exploration and combat narration.
+**`onActionResolved` is your most powerful hook.** It runs after every turn, from both mechanics and the DM. Use it to interpret DM output and translate it into mechanic state.
 
-**World state is flat JSON.** Namespace your keys to avoid collisions between mechanics. Convention: `persistedLoot_<playerId>`, `lastObservation`, `nearExit`.
-
-**`onActionResolved` is your best tool.** It runs after every turn — from both mechanics and the DM. Use it to interpret DM output and translate it into mechanic state.
+**Keep mechanics focused.** One mechanic = one system. Don't put combat, inventory, and extraction in the same file.

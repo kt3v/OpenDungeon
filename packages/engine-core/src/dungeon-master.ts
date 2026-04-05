@@ -12,6 +12,15 @@ import {
 } from "@opendungeon/content-sdk";
 import { createProviderFromEnv, type ChatMessage, type LlmProvider } from "@opendungeon/providers-llm";
 
+export interface MechanicToolEntry {
+  /** Routing key, e.g. "exploration.look" or "extraction.extract". */
+  id: string;
+  /** Human-readable description the DM uses to decide when to invoke this. */
+  description: string;
+  /** JSON Schema for the args the DM should pass, if any. */
+  paramSchema?: Record<string, unknown>;
+}
+
 export interface DmTurnInput {
   campaignId: string;
   sessionId: string;
@@ -29,6 +38,12 @@ export interface DmTurnInput {
   contextualLore?: string;
   lastSuggestedActions?: SuggestedAction[];
   moduleConfig?: DungeonMasterModuleConfig;
+  /**
+   * Mechanic actions the DM can invoke instead of narrating freely.
+   * When the DM emits `mechanicCall`, the engine routes to the named mechanic
+   * action and uses its deterministic result instead of the DM's narrative.
+   */
+  availableMechanicActions?: MechanicToolEntry[];
 }
 
 export interface DmTurnResult {
@@ -36,6 +51,11 @@ export interface DmTurnResult {
   worldPatch?: Record<string, unknown>;
   summaryPatch?: DungeonMasterSummaryPatch;
   suggestedActions?: SuggestedAction[];
+  /**
+   * When set, the engine will execute this mechanic action instead of using
+   * the DM's narrative response. The mechanic's ActionResult takes priority.
+   */
+  mechanicCall?: { id: string; args?: Record<string, unknown> };
 }
 
 export interface DungeonMasterRuntimeOptions {
@@ -84,6 +104,9 @@ export class DungeonMasterRuntime {
       promptContext: { campaignTitle: input.campaignTitle }
     });
 
+    const hasMechanicTools =
+      input.availableMechanicActions && input.availableMechanicActions.length > 0;
+
     const messages: ChatMessage[] = [
       { role: "system", content: systemPrompt },
       {
@@ -91,15 +114,26 @@ export class DungeonMasterRuntime {
         content: JSON.stringify(
           {
             task: "Resolve one player action for a dungeon session.",
+            ...(hasMechanicTools
+              ? { availableMechanicActions: input.availableMechanicActions }
+              : {}),
             responseContract: {
               message: "string (required)",
+              ...(hasMechanicTools
+                ? {
+                    mechanicCall: {
+                      id: "id from availableMechanicActions — invoke this mechanic instead of narrating freely (omit to narrate)",
+                      args: "optional object matching the action's paramSchema"
+                    }
+                  }
+                : {}),
               toolCalls: [
                 {
                   tool: "update_world_state | set_summary | set_suggested_actions",
                   args: "tool-specific object"
                 }
               ],
-              worldPatch: "object (optional)",
+              worldPatch: "object (optional, ignored when mechanicCall is set)",
               summaryPatch: {
                 shortSummary: "string (optional)",
                 latestBeat: "string (optional)"
@@ -157,6 +191,9 @@ export class DungeonMasterRuntime {
   }
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
 const JSON_REPAIR_PROMPT = [
   "Your previous response was invalid for the required JSON contract.",
   "Return valid JSON only.",
@@ -196,6 +233,17 @@ const parseDmResult = (
   const result: DmTurnResult = {
     message: message.trim()
   };
+
+  if (
+    isRecord(obj.mechanicCall) &&
+    typeof obj.mechanicCall.id === "string" &&
+    obj.mechanicCall.id.trim()
+  ) {
+    result.mechanicCall = {
+      id: obj.mechanicCall.id.trim(),
+      args: isRecord(obj.mechanicCall.args) ? obj.mechanicCall.args : undefined
+    };
+  }
 
   const toolCalls = normalizeDungeonMasterToolCalls(obj.toolCalls, {
     guardrails: options.guardrails,

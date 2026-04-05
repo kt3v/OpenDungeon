@@ -9,6 +9,12 @@ export { ArchitectOperationExecutor } from "./executor.js";
 export type { ExecutionReport } from "./executor.js";
 
 export { ArchitectRuntime } from "./architect.js";
+export { SkillSuggestionRuntime } from "./skill-suggester.js";
+export type {
+  IntentPattern,
+  SkillSuggestion,
+  SkillSuggestionRuntimeOptions
+} from "./skill-suggester.js";
 export type {
   ArchitectRuntimeOptions,
   ChroniclerEvent,

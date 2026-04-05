@@ -1,0 +1,24 @@
+{
+  "id": "camp",
+  "description": "Set up a campfire to rest and recover",
+  "resolve": "deterministic",
+  "dmPromptExtension": "## Camping\n- Players can set up camp in safe areas to rest.\n- Current state — safe to rest: {{worldState.safeToRest}}, campfire active: {{worldState.campfireActive}}.\n- Mark `safeToRest: true` in worldPatch when the player reaches a safe area.",
+  "validate": {
+    "worldStateKey": "safeToRest",
+    "failMessage": "This area is too dangerous to camp. Find a safer spot first."
+  },
+  "outcome": {
+    "message": "You clear a small patch of ground, stack kindling, and coax a flame to life. The warmth is immediate. You settle in for a short rest.",
+    "worldPatch": {
+      "campfireActive": true,
+      "safeToRest": false
+    },
+    "suggestedActions": [
+      {
+        "id": "continue",
+        "label": "Break camp and move on",
+        "prompt": "put out the fire and continue"
+      }
+    ]
+  }
+}

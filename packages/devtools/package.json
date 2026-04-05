@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@opendungeon/architect": "workspace:*",
+    "@opendungeon/content-sdk": "workspace:*",
     "@opendungeon/shared": "workspace:*",
     "@prisma/client": "^6.0.0"
   }

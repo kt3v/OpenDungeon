@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { moduleManifestSchema } from "@opendungeon/shared";
 import { runArchitectCli } from "./architect-cli.js";
+import { runArchitectAnalyze } from "./architect-analyze.js";
 import { printHelp, printError } from "./lib/output.js";
 import { runSetup } from "./commands/setup.js";
 import { runStart } from "./commands/start.js";
@@ -58,9 +59,15 @@ try {
       await runCreateModule(restArgs);
       break;
 
-    case "architect":
-      await runArchitectCli(restArgs);
+    case "architect": {
+      const subcommand = restArgs[0];
+      if (subcommand === "analyze") {
+        await runArchitectAnalyze(restArgs.slice(1));
+      } else {
+        await runArchitectCli(restArgs);
+      }
       break;
+    }
 
     case "validate-module": {
       const target = restArgs[0];

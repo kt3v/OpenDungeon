@@ -50,6 +50,7 @@ export function printHelp(): void {
   println();
   println(color("  Developer tools:", c.dim));
   println(color("  od architect --campaign <id> [--module <path>] [--apply]", c.dim));
+  println(color("  od architect analyze --campaign <id> [--min-count <n>] [--output <dir>] [--all]", c.dim));
   println(color("  od create-module <target-dir> [--name @scope/name]", c.dim));
   println(color("  od validate-module <path-to-manifest.json>", c.dim));
   println();
