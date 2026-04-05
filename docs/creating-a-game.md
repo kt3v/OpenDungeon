@@ -8,16 +8,16 @@ A game in OpenDungeon is a separate package that exports a `GameModule`. The eng
 
 ```bash
 # Scaffold a new game workspace
-od create-module ../my-game
-cd ../my-game
+pnpm create:game-module game-my-adventure
+cd game-my-adventure
 pnpm install
 
 # Point the engine at your game
-# In the engine's .env.local:
-GAME_MODULE_PATH=../my-game
+# In the engine's .env:
+GAME_MODULE_PATH=./game-my-adventure
 
-# Run
-od start
+# Run from the root
+pnpm start
 ```
 
 The engine validates your `GameModule` on startup and fails fast with a clear error if anything is wrong.
@@ -259,7 +259,7 @@ This reads session logs, groups unhandled player intents by pattern, and generat
 
 ## Reference
 
-`packages/game-classic` in this repo is the reference implementation. It shows:
+`game-example` in the project root is the reference implementation. It shows:
 - A complete `defineGameModule` with skills + mechanics
 - The extraction mechanic (cross-session loot persistence)
 - The location mechanic (per-player position in a shared world)

@@ -33,9 +33,9 @@ cd OpenDungeon
 pnpm install
 pnpm build
 
-pnpm od setup        # creates .env.local, starts Postgres, runs migrations
-pnpm od configure llm  # pick your LLM provider interactively
-pnpm od start        # gateway :3001, web UI :3000
+pnpm setup           # Interactive! Pick 'game-example' or create a clean project
+pnpm configure llm   # Pick your LLM provider interactively
+pnpm start           # Launches gateway (:3001) and web UI (:3000)
 ```
 
 Open `http://localhost:3000` to create your first campaign.
@@ -44,14 +44,10 @@ Open `http://localhost:3000` to create your first campaign.
 
 ## Building a game
 
-The fastest way to add gameplay is with a JSON skill file — no TypeScript, no compilation:
+The engine now supports **AI-native declarative skills**. You don't need to be a programmer to add new gameplay rules:
 
-```bash
-pnpm od create-module ../my-game
-cd ../my-game
-```
-
-Drop a file in `skills/`:
+1. Run `pnpm setup` and choose "Create a clean project" (e.g., `game-my-adventure`).
+2. Drop a JSON file into your new game's `skills/` folder:
 
 ```json
 // skills/bargain.json
@@ -86,29 +82,28 @@ For stateful cross-session logic, write a TypeScript mechanic. See [Creating a G
 
 ---
 
-## Developer tooling (`od`)
+## Developer tooling (`pnpm <command>`)
 
+```bash
+pnpm setup                                  First-time setup
+pnpm start [full|gateway|web]               Start services
+pnpm stop                                   Stop services
+pnpm status                                 Show running services and config
+pnpm logs [gateway|web] [-f]                View logs
+pnpm configure [llm|ports|module]           Change settings
+pnpm reset                                  Wipe all local state
+
+pnpm architect --campaign <id> [--apply]    Seed world lore interactively
+pnpm architect analyze --campaign <id>      Find unhandled intents, suggest skills
+pnpm create:game-module <dir>               Scaffold a new game workspace
 ```
-od setup                                    First-time setup
-od start [full|gateway|web]                 Start services
-od stop                                     Stop services
-od status                                   Show running services and config
-od logs [gateway|web] [-f]                  View logs
-od configure [llm|ports|module]             Change settings
-od reset                                    Wipe all local state
 
-od architect --campaign <id> [--apply]      Seed world lore interactively
-od architect analyze --campaign <id>        Find unhandled intents, suggest skills
-od create-module <dir>                      Scaffold a new game workspace
-od validate-module <manifest.json>          Validate module manifest
-```
-
-### `od architect analyze`
+### `pnpm architect analyze`
 
 After your game has been played, discover what players are trying to do that no mechanic covers:
 
 ```bash
-od architect analyze --campaign abc123 --min-count 3
+pnpm architect analyze --campaign abc123 --min-count 3
 ```
 
 The command reads session logs, groups unhandled intents by pattern, and asks the Architect LLM to generate `SkillSchema` suggestions. Review them interactively, save the ones you like, move them to `skills/` — done.
