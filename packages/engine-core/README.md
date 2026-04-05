@@ -11,7 +11,7 @@ The core gameplay engine for OpenDungeon, responsible for managing the state, ac
 ## Installation
 
 ```bash
-npm install @opendungeon/engine-core
+pnpm add @opendungeon/engine-core
 ```
 
 ## Usage

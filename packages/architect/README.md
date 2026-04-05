@@ -11,7 +11,7 @@ Campaign generation and world-building engine for OpenDungeon.
 ## Installation
 
 ```bash
-npm install @opendungeon/architect
+pnpm add @opendungeon/architect
 ```
 
 ## Usage

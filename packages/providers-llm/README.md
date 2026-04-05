@@ -11,7 +11,7 @@ LLM provider abstractions and implementations for OpenDungeon.
 ## Installation
 
 ```bash
-npm install @opendungeon/providers-llm
+pnpm add @opendungeon/providers-llm
 ```
 
 ## Usage

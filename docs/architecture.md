@@ -7,26 +7,43 @@ OpenDungeon separates engine runtime from game content. The engine loads your ga
 ## The big picture
 
 ```
-┌─────────────────────────────────────────────┐
-│             games/your-game/                │
-│   skills/          mechanics/    index.ts   │
-│   bargain.json     extraction.ts            │
-│   rest.json        location.ts              │
-└──────────────────────┬──────────────────────┘
-                       │  GAME_MODULE_PATH
-┌──────────────────────▼──────────────────────┐
-│              apps/gateway                   │
-│   HTTP API · action queue · world store     │
-├─────────────────────────────────────────────┤
-│           packages/engine-core              │
-│   EngineRuntime · DungeonMasterRuntime      │
-│   skill-loader · turn pipeline              │
-├─────────────────────────────────────────────┤
-│          packages/content-sdk               │
-│   GameModule · Mechanic · SkillSchema       │
-│   (the only package your game installs)     │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│                   games/your-game/                   │
+│                                                      │
+│  Declarative mode (default)  │  TypeScript mode      │
+│  classes.json                │  src/index.ts         │
+│  dm.md + dm-config.json      │  src/content/*.ts     │
+│  initial-state.json          │  src/mechanics/*.ts   │
+│  hooks/*.json                │  dist/index.js        │
+│                              │                       │
+│  skills/         resources/         lore/            │
+│  bargain.json    hp.json            factions.md      │
+│  rest.json       gold.json          locations.md     │
+└──────────────────────────────┬───────────────────────┘
+                               │  GAME_MODULE_PATH
+┌──────────────────────────────▼───────────────────────┐
+│                   apps/gateway                       │
+│   module-loader · HTTP API · action queue · world store │
+├──────────────────────────────────────────────────────┤
+│               packages/engine-core                   │
+│   EngineRuntime · DungeonMasterRuntime               │
+│   skill-loader · hook-loader · turn pipeline         │
+├──────────────────────────────────────────────────────┤
+│               packages/content-sdk                   │
+│   GameModule · Mechanic · SkillSchema                │
+│   loadDeclarativeGameModule · hookSchemasToMechanics │
+│   (the only package your game installs)              │
+└──────────────────────────────────────────────────────┘
 ```
+
+### Module loading
+
+The gateway reads `manifest.json#entry`:
+
+- `"declarative"` → `loadDeclarativeGameModule(path)` assembles a `GameModule` from JSON/Markdown files in the directory. No import, no compilation.
+- `"dist/index.js"` (or any path) → dynamic `import()` of the compiled TypeScript entry. Full access to the engine's TypeScript API.
+
+Both paths produce the same `GameModule` interface. The engine runtime doesn't know or care which path was used.
 
 ---
 
@@ -116,13 +133,13 @@ The DM system prompt is built in layers, injected in this order:
 
 | Package | What it does |
 |---------|-------------|
-| `shared` | Zod schemas, shared types (`SessionEndReason`, `ModuleManifest`) |
-| `content-sdk` | Public API for game developers: `GameModule`, `Mechanic`, `SkillSchema`, sanitizers |
+| `shared` | Zod schemas, shared types (`SessionEndReason`, `ModuleManifest`, declarative file schemas) |
+| `content-sdk` | Public API for game developers: `GameModule`, `Mechanic`, `SkillSchema`, all loaders, `loadDeclarativeGameModule`, `hookSchemasToMechanics` |
 | `providers-llm` | LLM abstraction: OpenAI-compat, Anthropic-compat, mock |
 | `engine-core` | Turn pipeline, `EngineRuntime`, `DungeonMasterRuntime`, skill-loader |
-| `architect` | Lore extraction, session chronicler, skill suggestion CLI |
-| `devtools` | `od` CLI: setup, start/stop, configure, architect tools |
-| `gateway` | HTTP API, action queue, world store, multi-player locking |
+| `architect` | Lore extraction, session chronicler, skill suggestion, game scaffolder |
+| `devtools` | `od` CLI: setup, start/stop, validate-module, architect tools (scaffold, analyze, worldbuilder) |
+| `gateway` | HTTP API, action queue, world store, multi-player locking, declarative module loading |
 | `web` | Next.js frontend (MVP) |
 
 Dependency graph (arrows = "depends on"):
@@ -183,9 +200,11 @@ The Architect is a background system for lore and analytics. It runs on two mode
 
 **Chronicler** — fires after sessions, extracts named entities, writes to `LoreEntry` and `Milestone` tables. Future turns can retrieve relevant lore via RAG and inject it into the DM context.
 
-**Worldbuilder** — interactive CLI (`od architect`) for seeding campaign lore before launch.
+**Worldbuilder** — interactive CLI (`pnpm od architect`) for seeding campaign lore before launch.
 
 **Skill analyzer** — reads `EventLog` for `type: "intent.unhandled"` entries (written when DM narrates freely without a mechanic), groups by pattern, and asks an LLM to suggest new `SkillSchema` files for the game developer to review.
+
+**Game scaffolder** — `pnpm od architect scaffold` generates or migrates declarative game module files (classes.json, dm.md, dm-config.json, initial-state.json, hooks/*.json) using an LLM. Can also migrate existing TypeScript configs to their JSON equivalents.
 
 ---
 

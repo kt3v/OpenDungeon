@@ -5,7 +5,7 @@ The only package your game needs to install. Provides all types and helpers for 
 ## Installation
 
 ```bash
-npm install @opendungeon/content-sdk
+pnpm add @opendungeon/content-sdk
 ```
 
 ---

@@ -1,0 +1,16 @@
+{
+  "toolPolicy": {
+    "allowedTools": ["update_world_state", "set_summary", "set_suggested_actions"],
+    "requireSummary": true,
+    "requireSuggestedActions": true
+  },
+  "guardrails": {
+    "maxSuggestedActions": 4,
+    "maxSummaryChars": 220
+  },
+  "defaultSuggestedActions": [
+    { "id": "look", "label": "Look Around", "prompt": "look around carefully" },
+    { "id": "listen", "label": "Listen", "prompt": "listen carefully for sounds" },
+    { "id": "advance", "label": "Advance", "prompt": "move cautiously forward" }
+  ]
+}

@@ -401,7 +401,7 @@ const run = async () => {
         output.write("\nMock provider enabled in .env.local\n");
         
         if (setupMode === "1") {
-          output.write("\nNext: npm run llm:probe -w @opendungeon/gateway\n");
+          output.write("\nNext: pnpm llm:probe -w @opendungeon/gateway\n");
           return;
         }
       } else {
@@ -462,7 +462,7 @@ const run = async () => {
     output.write("\n" + "=".repeat(50) + "\n");
     output.write("Setup complete!\n");
     output.write("\nTest your configuration:\n");
-    output.write("  npm run llm:probe -w @opendungeon/gateway\n");
+    output.write("  pnpm llm:probe -w @opendungeon/gateway\n");
     output.write("\n");
 
   } finally {

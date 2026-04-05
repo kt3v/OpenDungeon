@@ -11,15 +11,22 @@ const usage = () => {
     [
       "OpenDungeon game module generator",
       "",
+      "Creates a game module with declarative JSON/Markdown files.",
+      "Optional: add TypeScript mechanics with --typescript flag.",
+      "",
       "Usage:",
-      "  npm run create:game-module -- <target-dir> [--name @scope/module-name] [--force] [--dry-run]",
-      "  npm run create:game-module",
+      "  pnpm od create-module <target-dir> [--name @scope/module-name] [--force] [--dry-run] [--typescript]",
+      "  pnpm od create-module",
       "",
       "Examples:",
-      "  npm run create:game-module -- ../my-dungeon-module",
-      "  npm run create:game-module -- ../my-dungeon-module --name @indie/my-dungeon",
-      "  npm run create:game-module -- packages/game-dark --force",
-      "  npm run create:game-module    # interactive mode"
+      "  pnpm od create-module ../my-dungeon-module",
+      "  pnpm od create-module ../my-dungeon-module --name @indie/my-dungeon",
+      "  pnpm od create-module packages/game-dark --force",
+      "  pnpm od create-module ../my-game --typescript  # adds src/index.ts for custom mechanics",
+      "  pnpm od create-module    # interactive mode",
+      "",
+      "Flags:",
+      "  --typescript    Add TypeScript entry point (src/index.ts) for custom mechanics"
     ].join("\n") + "\n"
   );
 };
@@ -34,6 +41,7 @@ const parseArgs = (argv) => {
   let packageName;
   let force = false;
   let dryRun = false;
+  let typescript = false;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -62,6 +70,17 @@ const parseArgs = (argv) => {
       continue;
     }
 
+    if (arg === "--typescript") {
+      typescript = true;
+      continue;
+    }
+
+    // Legacy alias removed — all modules now use declarative base
+    if (arg === "--declarative") {
+      typescript = false;
+      continue;
+    }
+
     if (arg.startsWith("--")) {
       throw new Error(`Unknown option: ${arg}`);
     }
@@ -78,7 +97,8 @@ const parseArgs = (argv) => {
     targetDir,
     packageName,
     force,
-    dryRun
+    dryRun,
+    typescript
   };
 };
 
@@ -103,10 +123,14 @@ const askInteractiveOptions = async (partialOptions) => {
 
     const packageName = packageNamePrompt.trim() || inferred;
 
+    const typescriptAnswer = await rl.question("Add TypeScript mechanics? (y/N): ");
+    const typescript = typescriptAnswer.trim().toLowerCase() === "y";
+
     return {
       ...partialOptions,
       targetDir,
-      packageName
+      packageName,
+      typescript
     };
   } finally {
     rl.close();
@@ -151,127 +175,196 @@ const getContentSdkDependency = (absTargetDir) => {
   return `file:${normalized}`;
 };
 
-const createFiles = ({ absTargetDir, packageName, contentSdkDependency, dryRun }) => {
+/**
+ * Generate a game module.
+ * All modules include declarative JSON/Markdown files.
+ * TypeScript mechanics are optional (--typescript flag).
+ */
+const createModuleFiles = ({ absTargetDir, packageName, contentSdkDependency, typescript, dryRun }) => {
+  // Entry is either the compiled JS path or "declarative" for pure declarative modules
+  const entry = typescript ? "dist/index.js" : "declarative";
+
   const manifest = {
     name: packageName,
     version: "0.1.0",
     engine: "^1.0.0",
     contentApi: "^1.0.0",
     capabilities: [],
-    entry: "src/index.ts",
+    entry,
     stateVersion: 1
   };
 
-  const packageJson = {
-    name: packageName,
-    version: "0.1.0",
-    private: true,
-    type: "module",
-    main: "src/index.ts",
-    files: [
-      "dist",
-      "manifest.json",
-      "skills",
-      "lore",
-      "setting.json"
-    ],
-    scripts: {
-      build: "tsc -p tsconfig.json",
-      typecheck: "tsc -p tsconfig.json --noEmit"
-    },
-    dependencies: {
-      "@opendungeon/content-sdk": contentSdkDependency
-    },
-    devDependencies: {
-      typescript: "^5.8.3"
-    }
+  const packageJson = typescript
+    ? {
+        name: packageName,
+        version: "0.1.0",
+        private: true,
+        type: "module",
+        main: "dist/index.js",
+        files: [
+          "dist",
+          "manifest.json",
+          "setting.json",
+          "classes.json",
+          "dm.md",
+          "dm-config.json",
+          "initial-state.json",
+          "skills",
+          "resources",
+          "hooks",
+          "rules",
+          "lore"
+        ],
+        scripts: {
+          build: "tsc -p tsconfig.json",
+          typecheck: "tsc -p tsconfig.json --noEmit"
+        },
+        dependencies: {
+          "@opendungeon/content-sdk": contentSdkDependency
+        },
+        devDependencies: {
+          typescript: "^5.8.3"
+        }
+      }
+    : {
+        name: packageName,
+        version: "0.1.0",
+        private: true,
+        type: "module",
+        files: [
+          "manifest.json",
+          "setting.json",
+          "classes.json",
+          "dm.md",
+          "dm-config.json",
+          "initial-state.json",
+          "skills",
+          "resources",
+          "hooks",
+          "rules",
+          "lore"
+        ]
+      };
+
+  const tsconfig = typescript
+    ? {
+        compilerOptions: {
+          target: "ES2022",
+          module: "NodeNext",
+          moduleResolution: "NodeNext",
+          strict: true,
+          declaration: true,
+          declarationMap: true,
+          sourceMap: true,
+          skipLibCheck: true,
+          resolveJsonModule: true,
+          esModuleInterop: true,
+          forceConsistentCasingInFileNames: true,
+          noUncheckedIndexedAccess: true,
+          noImplicitOverride: true,
+          outDir: "dist",
+          rootDir: "src"
+        },
+        include: ["src/**/*.ts"]
+      }
+    : null;
+
+  // All modules get these declarative files
+  const settingJson = {
+    name: "",
+    description: "",
+    era: "",
+    realismLevel: "soft",
+    tone: "",
+    themes: [],
+    magicSystem: "",
+    taboos: [],
+    custom: {}
   };
 
-  const tsconfig = {
-    compilerOptions: {
-      target: "ES2022",
-      module: "NodeNext",
-      moduleResolution: "NodeNext",
-      strict: true,
-      declaration: true,
-      declarationMap: true,
-      sourceMap: true,
-      skipLibCheck: true,
-      resolveJsonModule: true,
-      esModuleInterop: true,
-      forceConsistentCasingInFileNames: true,
-      noUncheckedIndexedAccess: true,
-      noImplicitOverride: true,
-      outDir: "dist",
-      rootDir: "src"
+  const classesJson = {
+    fallback: {
+      level: 1,
+      hp: 100,
+      attributes: { strength: 10, agility: 10, intellect: 10 }
     },
-    include: ["src/**/*.ts"]
+    classes: [
+      {
+        name: "Adventurer",
+        level: 1,
+        hp: 100,
+        attributes: { strength: 10, agility: 10, intellect: 10 }
+      }
+    ]
   };
 
-  const indexTs = `import { defineGameModule, loadSkillsDirSync, loadLoreFilesSync } from "@opendungeon/content-sdk";
-import { dmConfig } from "./content/dm-config.js";
-import { availableClasses, getCharacterTemplate } from "./content/classes.js";
-import settingConfig from "../setting.json" with { type: "json" };
+  const dmMd = `You are a Dungeon Master for ${packageName}.
 
-const manifest = ${JSON.stringify(manifest, null, 2)};
+## Output Format
+Return valid JSON with key "message" (player-facing narration).
+Optional keys: toolCalls, worldPatch, summaryPatch, suggestedActions.
 
-export default defineGameModule({
-  manifest,
+## Rules
+- Keep narration concise and atmospheric.
+- Prefer small, targeted worldPatch updates.
+- Suggested actions must be concrete and immediately playable.
+`;
 
-  initial: {
-    /** Returns the world state for a brand-new campaign. */
-    worldState: () => ({
-      location: "start"
-    })
-  },
+  const dmConfigJson = {
+    toolPolicy: {
+      allowedTools: ["update_world_state", "set_summary", "set_suggested_actions"],
+      requireSummary: true,
+      requireSuggestedActions: true
+    },
+    guardrails: {
+      maxSuggestedActions: 4,
+      maxSummaryChars: 220
+    },
+    defaultSuggestedActions: [
+      { id: "look", label: "Look Around", prompt: "look around carefully" },
+      { id: "listen", label: "Listen", prompt: "listen for sounds" },
+      { id: "advance", label: "Advance", prompt: "move cautiously forward" }
+    ]
+  };
 
-  characters: {
-    availableClasses,
-    getTemplate: getCharacterTemplate
-  },
-
-  /**
-   * Setting / World Bible — base lore, tone, and constraints for all campaigns.
-   * This establishes the world before any runtime lore is added.
-   * 
-   * Edit setting.json to customize your world, or leave blank for generic fantasy.
-   */
-  setting: {
-    /** Structured setting configuration from setting.json */
-    config: settingConfig as import("@opendungeon/content-sdk").SettingConfig,
-    /** Markdown lore files loaded from the lore/ directory */
-    loreFiles: loadLoreFilesSync(new URL("../lore", import.meta.url).pathname)
-  },
-
-  dm: dmConfig,
-
-  /** TypeScript mechanics — use for complex state logic and hooks. */
-  mechanics: [],
-
-  /** 
-   * Declarative skills — drop a .json file into skills/ and it's picked up automatically.
-   * No TypeScript or recompilation needed for simple gameplay rules.
-   */
-  skills: loadSkillsDirSync(new URL("../skills", import.meta.url).pathname)
-});`
+  const initialStateJson = {};
 
   const lookSkill = {
     id: "look",
     description: "Observe your immediate surroundings",
-    dmPromptExtension: "The player can 'look' to see their current location and nearby details.",
-    resolve: "deterministic",
-    outcome: {
-      message: "You look around and take in your surroundings.",
-      suggestedActions: [
-        { id: "look", label: "Look again", prompt: "look around once more" }
-      ]
+    dmPromptExtension: "When the player looks around, the DM describes the current location in vivid detail.",
+    resolve: "ai"
+  };
+
+  const hpResource = {
+    id: "hp",
+    label: "HP",
+    source: "character",
+    stateKey: "hp",
+    type: "number"
+  };
+
+  const locationResource = {
+    id: "location",
+    label: "Location",
+    source: "characterState",
+    stateKey: "location",
+    type: "text",
+    defaultValue: "Unknown"
+  };
+
+  const startingGearHook = {
+    id: "starting-gear",
+    hook: "onCharacterCreated",
+    characterPatch: {
+      location: "start",
+      inventory: []
     }
   };
 
   const loreReadme = `# Lore Files
 
 Add markdown files to this directory for detailed world building.
-
 Each .md file will be loaded and injected into the DM's system prompt.
 
 ## Suggested files
@@ -279,246 +372,184 @@ Each .md file will be loaded and injected into the DM's system prompt.
 - factions.md — Organizations, guilds, political powers
 - locations.md — Notable places, geography
 - history.md — Timeline of major events
-- cultures.md — Societies, customs, religions
-- magic.md — Detailed magic system description
-
-## Format
-
-Use markdown headers to organize content:
-
-\`\`\`markdown
-# Factions
-
-## The Iron Order
-A group of... 
-\`\`\`
 `;
 
-  const dmConfigTs = `import type { DungeonMasterModuleConfig } from "@opendungeon/content-sdk";
+  // TypeScript entry point (only for --typescript)
+  const indexTs = typescript
+    ? `import { defineMechanics } from "@opendungeon/content-sdk";
+import { myMechanic } from "./mechanics/my-mechanic.js";
 
 /**
- * DM Configuration
- * 
- * Controls how the Dungeon Master behaves.
- * Uncomment and modify as needed, or leave as-is for defaults.
+ * TypeScript extension for ${packageName}.
+ *
+ * All module data (classes, DM config, setting, skills, resources)
+ * is loaded from JSON/Markdown files in the module root.
+ *
+ * This file only exports additional mechanics that implement complex,
+ * stateful gameplay logic beyond what declarative files can express.
  */
-export const dmConfig: DungeonMasterModuleConfig = {
-  // Base prompt — customize to set tone and style
-  // systemPrompt: "You are a helpful Dungeon Master...",
+export default defineMechanics({
+  mechanics: [myMechanic]
+});
+`
+    : null;
 
-  // Prompt template with variable substitution
-  // promptTemplate: {
-  //   lines: [
-  //     "You are the DM for {{campaignTitle}}.",
-  //     "Tone: dark fantasy, terse, atmospheric."
-  //   ]
-  // },
-
-  // Guardrails — control output limits
-  // guardrails: {
-  //   maxSuggestedActions: 4,
-  //   maxSummaryChars: 240
-  // },
-
-  // Tool policy — which DM tools are allowed
-  // toolPolicy: {
-  //   allowedTools: ["update_world_state", "set_summary", "set_suggested_actions"],
-  //   requireSummary: true,
-  //   requireSuggestedActions: true
-  // },
-
-  // Default suggested actions shown to players
-  // defaultSuggestedActions: [
-  //   { id: "look", label: "Look Around", prompt: "look around carefully" }
-  // ]
-};
-`;
-
-  const classesTs = `import type { CharacterTemplate } from "@opendungeon/content-sdk";
+  const exampleMechanicTs = typescript
+    ? `import { defineMechanic } from "@opendungeon/content-sdk";
 
 /**
- * Character Classes
- * 
- * Define available character classes and their starting stats.
- * Modify or add new classes as needed.
+ * Example mechanic — replace with your own.
+ *
+ * Mechanics can:
+ * - React to lifecycle hooks (onCharacterCreated, onSessionStart, onActionResolved, onSessionEnd)
+ * - Define deterministic actions (validate + resolve)
+ * - Inject context into DM prompts via dmPromptExtension
  */
+export const myMechanic = defineMechanic({
+  id: "my-mechanic",
 
-export const availableClasses = ["Adventurer"];
-
-const templates: Record<string, CharacterTemplate> = {
-  Adventurer: {
-    level: 1,
-    hp: 100,
-    attributes: {
-      strength: 10,
-      agility: 10,
-      intellect: 10
+  hooks: {
+    onSessionStart: async (ctx) => {
+      // Initialize session-specific state
+      return {
+        worldPatch: {
+          sessionStarted: true
+        }
+      };
     }
+  },
+
+  dmPromptExtension: ({ worldState }) => {
+    return "Custom mechanic context for the DM.";
   }
-  // Add more classes:
-  // Warrior: { level: 1, hp: 130, attributes: { strength: 14 } },
-  // Mage: { level: 1, hp: 80, attributes: { intellect: 14 } },
-};
-
-export const getCharacterTemplate = (className: string): CharacterTemplate =>
-  templates[className] ?? templates.Adventurer!;
-`;
-
-  const settingConfig = {
-    "name": "",
-    "description": "",
-    "era": "",
-    "realismLevel": "soft",
-    "tone": "",
-    "themes": [],
-    "magicSystem": "",
-    "taboos": [],
-    "custom": {}
-  };
+});
+`
+    : null;
 
   const readme = `# ${packageName}
 
-Custom game module for OpenDungeon.
+An OpenDungeon game module.
 
 ## Quick Start
 
-This is a blank game module ready to customize. All required files are present with sensible defaults.
-
 \`\`\`bash
-# Install dependencies
-npm install
-
-# Build the module
-npm run build
-
 # Set the game module path in OpenDungeon .env.local:
-# GAME_MODULE_PATH=${absTargetDir}
+GAME_MODULE_PATH=${absTargetDir}
 
-# Start OpenDungeon normally
+# Start OpenDungeon
+${typescript ? `cd ${absTargetDir} && pnpm install && pnpm build\n\n# Then:` : ""}pnpm dev:full
 \`\`\`
+
+${typescript ? "After editing TypeScript files, run `pnpm build` to recompile." : "No build step needed — edit JSON/Markdown files directly."}
 
 ## Project Structure
 
 \`\`\`
-├── setting.json              # World bible (era, tone, themes, taboos)
-├── lore/                     # Markdown lore files
-│   └── README.md             # Guide for adding lore
-├── skills/                   # Declarative JSON skills
-│   └── look.json             # Example skill (observe surroundings)
-├── src/
-│   ├── index.ts              # Game module entry point
-│   ├── content/
-│   │   ├── dm-config.ts      # DM prompts and guardrails
-│   │   └── classes.ts        # Character class definitions
-│   └── mechanics/            # TypeScript mechanics (empty, add as needed)
-├── manifest.json             # Module metadata
-├── package.json
-└── tsconfig.json
+├── manifest.json         # Module metadata
+├── setting.json          # World config (era, tone, themes, taboos)
+├── classes.json          # Character class definitions
+├── dm.md                 # DM system prompt (Markdown)
+├── dm-config.json        # DM guardrails, tool policy, default actions
+├── initial-state.json    # Starting worldState for new campaigns
+├── lore/                 # Markdown lore files
+│   └── README.md
+├── skills/               # Declarative JSON skills
+│   └── look.json
+├── resources/            # UI resource indicators
+│   ├── hp.json
+│   └── location.json
+├── hooks/                # Declarative mechanic hooks
+│   └── starting-gear.json
+${typescript ? `├── src/                  # TypeScript mechanics (optional)
+│   ├── index.ts          # Entry point — exports mechanics only
+│   └── mechanics/
+│       └── my-mechanic.ts` : "# TypeScript mechanics optional — add src/ directory with index.ts if needed"}
 \`\`\`
 
-## Customization Steps
+## Adding Gameplay
 
-### 1. Define Your Setting (\`setting.json\`)
-
-The setting.json file establishes your world's base lore. Fill in the blanks:
-
-\`\`\`json
-{
-  "name": "Your World Name",
-  "description": "Brief world description...",
-  "era": "Medieval",
-  "realismLevel": "soft",
-  "tone": "dark and mysterious",
-  "themes": ["exploration", "survival"],
-  "magicSystem": "How magic works...",
-  "taboos": ["No teleportation", "No resurrections"],
-  "custom": {
-    "currency": "Gold pieces",
-    "technology": "Medieval tech only"
-  }
-}
-\`\`\`
-
-**Fields:**
-- \`name\`: Your world's name
-- \`description\`: Brief overview
-- \`era\`: Historical period (Medieval, Victorian, Cyberpunk, etc.)
-- \`realismLevel\`: \`hard\` (gritty), \`soft\` (heroic), or \`cinematic\`
-- \`tone\`: Narrative mood
-- \`themes\`: Core story themes (array)
-- \`magicSystem\`: How magic works (or leave empty)
-- \`taboos\`: Things the DM should NEVER include
-- \`custom\`: Any additional key-value pairs
-
-### 2. Add Lore Files (\`lore/\`)
-
-Create markdown files for detailed world building. Each .md file is loaded and injected into the DM prompt.
-
-Suggested files:
-- \`factions.md\` — Organizations, guilds, powers
-- \`locations.md\` — Notable places, geography
-- \`history.md\` — Timeline of major events
-- \`cultures.md\` — Societies, customs, religions
-
-See \`lore/README.md\` for format examples.
-
-### 3. Add Skills (\`skills/\`)
-
-Drop JSON files into \`skills/\` — they're automatically picked up. No TypeScript needed!
-
+### Skills (skills/*.json)
+Drop JSON files — picked up automatically:
 \`\`\`json
 {
   "id": "rest",
-  "description": "Rest to recover HP",
+  "description": "Rest to recover",
   "resolve": "deterministic",
-  "validate": {
-    "worldStateKey": "safeToRest",
-    "failMessage": "Too dangerous to rest here."
-  },
-  "outcome": {
-    "message": "You rest and recover.",
-    "characterPatch": { "hp": 100 }
+  "outcome": { "message": "You rest.", "characterPatch": { "rested": true } }
+}
+\`\`\`
+
+### Hooks (hooks/*.json)
+Set initial state or react to session events:
+\`\`\`json
+{
+  "id": "warrior-start",
+  "hook": "onCharacterCreated",
+  "classBranches": {
+    "Warrior": { "characterPatch": { "gold": 5 } },
+    "Mage": { "characterPatch": { "gold": 10 } }
   }
 }
 \`\`\`
 
-### 4. Customize DM (\`src/content/dm-config.ts\`)
+### Rules (rules/*.json)
+Apply effects after every action — drain HP, tick timers, check death:
+\`\`\`json
+{
+  "id": "poison-tick",
+  "trigger": "onActionResolved",
+  "condition": { "key": "characterState.poisoned", "operator": "==", "value": true },
+  "effects": [{ "op": "decrement", "target": "characterState.hp", "amount": 3, "min": 0 }]
+}
+\`\`\`
 
-Uncomment and modify sections to customize DM behavior.
+${typescript ? `### TypeScript Mechanics (src/mechanics/*.ts)
+For complex logic that declarative files can't express:
 
-### 5. Add Character Classes (\`src/content/classes.ts\`)
+\`\`\`typescript
+import { defineMechanic } from "@opendungeon/content-sdk";
 
-Define available classes and their starting stats.
+export const myMechanic = defineMechanic({
+  id: "complex-logic",
+  hooks: {
+    onActionResolved: async (result, ctx) => {
+      // Custom logic here
+      return result;
+    }
+  }
+});
+\`\`\`
 
-### 6. Add Mechanics (\`src/mechanics/\`)
+Don't forget to import and add to the mechanics array in \`src/index.ts\`!` : "### TypeScript Mechanics (optional)\n\nFor complex logic, create `src/index.ts` and point `entry` in manifest.json to `dist/index.js`."}
 
-For complex logic, add TypeScript mechanics with hooks.
-
-See the [game-example](../packages/game-example/) for a complete reference implementation.
-
-## Working with the Game
-
-- Edit any file and save
-- The engine will use the latest version on next restart
-- For skills: just drop a new .json file into \`skills/\`
-- For mechanics: add to \`src/mechanics/\` and import in \`index.ts\`
-
-Happy building! 🎲
+See the [game-example](../packages/game-example/) for a reference implementation.
 `;
 
+  // Build file list
   const files = [
     { path: resolve(absTargetDir, "package.json"), content: JSON.stringify(packageJson, null, 2) + "\n" },
     { path: resolve(absTargetDir, "manifest.json"), content: JSON.stringify(manifest, null, 2) + "\n" },
-    { path: resolve(absTargetDir, "tsconfig.json"), content: JSON.stringify(tsconfig, null, 2) + "\n" },
-    { path: resolve(absTargetDir, ".gitignore"), content: "node_modules\ndist\n" },
+    { path: resolve(absTargetDir, ".gitignore"), content: `node_modules\n${typescript ? "dist\n" : ""}` },
     { path: resolve(absTargetDir, "README.md"), content: readme },
-    { path: resolve(absTargetDir, "src/index.ts"), content: indexTs },
-    { path: resolve(absTargetDir, "src/content/dm-config.ts"), content: dmConfigTs },
-    { path: resolve(absTargetDir, "src/content/classes.ts"), content: classesTs },
+    { path: resolve(absTargetDir, "setting.json"), content: JSON.stringify(settingJson, null, 2) + "\n" },
+    { path: resolve(absTargetDir, "classes.json"), content: JSON.stringify(classesJson, null, 2) + "\n" },
+    { path: resolve(absTargetDir, "dm.md"), content: dmMd },
+    { path: resolve(absTargetDir, "dm-config.json"), content: JSON.stringify(dmConfigJson, null, 2) + "\n" },
+    { path: resolve(absTargetDir, "initial-state.json"), content: JSON.stringify(initialStateJson, null, 2) + "\n" },
     { path: resolve(absTargetDir, "skills/look.json"), content: JSON.stringify(lookSkill, null, 2) + "\n" },
-    { path: resolve(absTargetDir, "setting.json"), content: JSON.stringify(settingConfig, null, 2) + "\n" },
+    { path: resolve(absTargetDir, "resources/hp.json"), content: JSON.stringify(hpResource, null, 2) + "\n" },
+    { path: resolve(absTargetDir, "resources/location.json"), content: JSON.stringify(locationResource, null, 2) + "\n" },
+    { path: resolve(absTargetDir, "hooks/starting-gear.json"), content: JSON.stringify(startingGearHook, null, 2) + "\n" },
     { path: resolve(absTargetDir, "lore/README.md"), content: loreReadme }
   ];
+
+  if (typescript) {
+    files.push(
+      { path: resolve(absTargetDir, "tsconfig.json"), content: JSON.stringify(tsconfig, null, 2) + "\n" },
+      { path: resolve(absTargetDir, "src/index.ts"), content: indexTs },
+      { path: resolve(absTargetDir, "src/mechanics/my-mechanic.ts"), content: exampleMechanicTs }
+    );
+  }
 
   if (dryRun) {
     process.stdout.write(`Dry run: would write ${files.length} files to ${absTargetDir}\n`);
@@ -528,11 +559,16 @@ Happy building! 🎲
     return;
   }
 
-  mkdirSync(resolve(absTargetDir, "src"), { recursive: true });
-  mkdirSync(resolve(absTargetDir, "src/content"), { recursive: true });
-  mkdirSync(resolve(absTargetDir, "src/mechanics"), { recursive: true });
+  // Create directories
   mkdirSync(resolve(absTargetDir, "skills"), { recursive: true });
+  mkdirSync(resolve(absTargetDir, "resources"), { recursive: true });
+  mkdirSync(resolve(absTargetDir, "hooks"), { recursive: true });
   mkdirSync(resolve(absTargetDir, "lore"), { recursive: true });
+  if (typescript) {
+    mkdirSync(resolve(absTargetDir, "src"), { recursive: true });
+    mkdirSync(resolve(absTargetDir, "src/mechanics"), { recursive: true });
+  }
+
   for (const file of files) {
     writeFileSync(file.path, file.content, "utf8");
   }
@@ -549,20 +585,36 @@ const run = async () => {
 
   ensureWritableTarget(absTargetDir, options.force);
 
-  const contentSdkDependency = getContentSdkDependency(absTargetDir);
-  createFiles({
+  const contentSdkDependency = options.typescript ? getContentSdkDependency(absTargetDir) : null;
+
+  createModuleFiles({
     absTargetDir,
     packageName,
     contentSdkDependency,
+    typescript: options.typescript,
     dryRun: options.dryRun
   });
 
   process.stdout.write(`Game module scaffold ready: ${absTargetDir}\n`);
-  process.stdout.write(`Package name: ${packageName}\n`);
-  process.stdout.write("Next steps:\n");
-  process.stdout.write(`  1) cd ${absTargetDir} && npm install\n`);
-  process.stdout.write(`  2) Set GAME_MODULE_PATH=${absTargetDir} in OpenDungeon .env.local\n`);
-  process.stdout.write("  3) Start gateway/orchestrator\n");
+  process.stdout.write(`Package name: ${packageName}\n\n`);
+
+  if (options.typescript) {
+    process.stdout.write("This module includes TypeScript mechanics.\n");
+    process.stdout.write("Next steps:\n");
+    process.stdout.write(`  1) cd ${absTargetDir} && pnpm install\n`);
+    process.stdout.write(`  2) pnpm build\n`);
+    process.stdout.write(`  3) Set GAME_MODULE_PATH=${absTargetDir} in OpenDungeon .env.local\n`);
+    process.stdout.write(`  4) Start the engine: pnpm dev:full\n`);
+    process.stdout.write("\nAfter editing TypeScript, run `pnpm build` to recompile.\n");
+  } else {
+    process.stdout.write("This is a declarative module — no build step needed.\n");
+    process.stdout.write("Next steps:\n");
+    process.stdout.write(`  1) Set GAME_MODULE_PATH=${absTargetDir} in OpenDungeon .env.local\n`);
+    process.stdout.write(`  2) Edit setting.json, classes.json, dm.md to describe your world\n`);
+    process.stdout.write(`  3) Start the engine: pnpm dev:full\n`);
+    process.stdout.write("\nTip: run 'od architect scaffold' to have AI generate your content\n");
+    process.stdout.write("     To add TypeScript later, create src/index.ts and update manifest.json#entry\n");
+  }
 };
 
 run().catch((error) => {

@@ -38,9 +38,10 @@ export function getLogPath(projectId: string, service: ServiceName): string {
   return join(getLogsDir(projectId), `${service}.log`);
 }
 
-export function isAlive(pid: number): boolean {
+export function isAlive(pid: number, group = false): boolean {
   try {
-    process.kill(pid, 0);
+    const target = group && process.platform !== "win32" ? -pid : pid;
+    process.kill(target, 0);
     return true;
   } catch {
     return false;
@@ -66,7 +67,7 @@ export function getServiceState(
     return { name: service, pid: null, alive: false, logPath, pidPath };
   }
 
-  const alive = isAlive(pid);
+  const alive = isAlive(pid, true);
   if (!alive) {
     try { unlinkSync(pidPath); } catch { /* ignore */ }
     return { name: service, pid: null, alive: false, logPath, pidPath };
@@ -133,16 +134,30 @@ export async function stopService(
   const state = getServiceState(projectId, service);
   if (!state.alive || state.pid === null) return;
 
-  process.kill(state.pid, "SIGTERM");
+  const target = process.platform === "win32" ? state.pid : -state.pid;
+
+  try {
+    process.kill(target, "SIGTERM");
+  } catch {
+    /* ignore */
+  }
 
   const deadline = Date.now() + 3000;
-  while (Date.now() < deadline && isAlive(state.pid)) {
+  while (Date.now() < deadline && isAlive(state.pid, true)) {
     await sleep(100);
   }
 
-  if (isAlive(state.pid)) {
-    process.kill(state.pid, "SIGKILL");
+  if (isAlive(state.pid, true)) {
+    try {
+      process.kill(target, "SIGKILL");
+    } catch {
+      /* ignore */
+    }
   }
 
-  try { unlinkSync(state.pidPath); } catch { /* ignore */ }
+  try {
+    unlinkSync(state.pidPath);
+  } catch {
+    /* ignore */
+  }
 }

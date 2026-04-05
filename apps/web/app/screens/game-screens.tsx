@@ -29,6 +29,88 @@ type SuggestedAction = {
   prompt: string;
 };
 
+type ResourceSource = "character" | "characterState" | "worldState";
+type ResourceType = "number" | "text" | "list" | "boolean";
+type ResourceSchema = {
+  id: string;
+  label: string;
+  source: ResourceSource;
+  stateKey: string;
+  type: ResourceType;
+  defaultValue?: string | number | boolean | unknown[];
+  display?: "compact" | "badge";
+};
+
+const resolveDotPath = (obj: Record<string, unknown>, path: string): unknown =>
+  path.split(".").reduce<unknown>(
+    (acc, key) =>
+      acc && typeof acc === "object" && !Array.isArray(acc)
+        ? (acc as Record<string, unknown>)[key]
+        : undefined,
+    obj
+  );
+
+const resolveResourceValue = (
+  schema: ResourceSchema,
+  character: SessionCharacter,
+  characterState: Record<string, unknown>,
+  worldState: Record<string, unknown>
+): unknown => {
+  const src =
+    schema.source === "character"
+      ? (character as unknown as Record<string, unknown>)
+      : schema.source === "characterState"
+        ? characterState
+        : worldState;
+  const val = resolveDotPath(src, schema.stateKey);
+  return val === undefined || val === null ? (schema.defaultValue ?? "—") : val;
+};
+
+const formatResourceValue = (value: unknown, type: ResourceType): string => {
+  if (type === "list") {
+    if (!Array.isArray(value)) return String(value);
+    if (value.length === 0) return "empty";
+    return value
+      .map((item) =>
+        item && typeof item === "object" && "label" in item
+          ? (item as { label: string }).label
+          : String(item)
+      )
+      .join(", ");
+  }
+  if (type === "boolean") return value ? "yes" : "no";
+  return String(value);
+};
+
+type ResourceIndicatorsProps = {
+  schemas: ResourceSchema[];
+  character: SessionCharacter;
+  characterState: Record<string, unknown>;
+  worldState: Record<string, unknown>;
+};
+
+export function ResourceIndicators({
+  schemas,
+  character,
+  characterState,
+  worldState,
+}: ResourceIndicatorsProps) {
+  if (schemas.length === 0) return null;
+  return (
+    <div className="resource-indicators">
+      {schemas.map((schema) => {
+        const raw = resolveResourceValue(schema, character, characterState, worldState);
+        return (
+          <div key={schema.id} className="resource-indicator">
+            <span className="resource-label">{schema.label}</span>
+            <span className="resource-value">{formatResourceValue(raw, schema.type)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 type SessionEvent = {
   id: string;
   playerId: string;
@@ -380,6 +462,10 @@ type ActionsScreenProps = {
   setActionText: (value: string) => void;
   onSendAction: (prompt: string) => void;
   onBack: () => void;
+  resourceSchemas: ResourceSchema[];
+  sessionCharacter: SessionCharacter;
+  characterState: Record<string, unknown>;
+  worldState: Record<string, unknown>;
 };
 
 export function ActionsScreen(props: ActionsScreenProps) {
@@ -399,6 +485,13 @@ export function ActionsScreen(props: ActionsScreenProps) {
       <div className="actions-topbar">
         <button className="od-btn od-btn-ghost od-btn-sm back-btn" onClick={props.onBack}>← Characters</button>
       </div>
+
+      <ResourceIndicators
+        schemas={props.resourceSchemas}
+        character={props.sessionCharacter}
+        characterState={props.characterState}
+        worldState={props.worldState}
+      />
 
       {/* Chronicle */}
       <div className="chronicle-wrap">

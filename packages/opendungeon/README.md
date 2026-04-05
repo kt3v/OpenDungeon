@@ -18,7 +18,7 @@ OpenDungeon combines classic RPG mechanics with modern AI capabilities. It allow
 ### Installation
 
 ```bash
-npm install opendungeon
+pnpm add opendungeon
 ```
 
 ### Basic Example

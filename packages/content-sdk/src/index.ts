@@ -1,6 +1,20 @@
 import type { ModuleManifest, SessionEndReason } from "@opendungeon/shared";
 
-export { loadSkillsDirSync, loadLoreFilesSync } from "./node-utils.js";
+export {
+  loadSkillsDirSync,
+  loadLoreFilesSync,
+  loadResourcesDirSync,
+  loadClassesFileSync,
+  loadDmPromptFileSync,
+  loadDmConfigFileSync,
+  loadInitialStateFileSync,
+  loadHooksDirSync,
+  loadRulesDirSync
+} from "./node-utils.js";
+export { hookSchemasToMechanics } from "./hook-loader.js";
+export { ruleSchemasToMechanics } from "./rule-loader.js";
+export { loadDeclarativeGameModule, loadDeclarativeModuleBase } from "./declarative-loader.js";
+export type { DeclarativeModuleResult, DeclarativeModuleBase, DeclarativeBaseResult } from "./declarative-loader.js";
 
 export type { SessionEndReason } from "@opendungeon/shared";
 
@@ -214,10 +228,40 @@ export interface GameModule {
    * Skills are processed after all TypeScript mechanics.
    */
   skills?: SkillSchema[];
+
+  /**
+   * Declarative resource definitions for UI display.
+   * Each resource maps a state key (from character, characterState, or worldState)
+   * to a named indicator shown in the game client.
+   * Resources are display-only — data is written by mechanics as usual.
+   */
+  resources?: ResourceSchema[];
 }
 
 /** Type-safe helper — returns the module as-is (identity). */
 export const defineGameModule = (module: GameModule): GameModule => module;
+
+// ---------------------------------------------------------------------------
+// TypeScript Module Extension — for additional mechanics
+// ---------------------------------------------------------------------------
+
+/**
+ * TypeScript modules export only mechanics to be merged with declarative base.
+ * All other data (classes, DM config, setting) comes from JSON/Markdown files.
+ *
+ * Use `defineMechanics()` helper to export from src/index.ts:
+ *
+ *   export default defineMechanics({
+ *     mechanics: [myLocationMechanic, myCombatMechanic]
+ *   });
+ */
+export interface TypeScriptModuleExtension {
+  /** Additional TypeScript mechanics to merge with declarative ones. */
+  mechanics: Mechanic[];
+}
+
+/** Type-safe helper for TypeScript module exports. */
+export const defineMechanics = (ext: TypeScriptModuleExtension): TypeScriptModuleExtension => ext;
 
 // ---------------------------------------------------------------------------
 // Skill Schema — declarative mechanics (no TypeScript required)
@@ -315,6 +359,55 @@ export interface SkillSchema {
 
 /** Type-safe helper — returns the skill schema as-is (identity). */
 export const defineSkill = (schema: SkillSchema): SkillSchema => schema;
+
+// ---------------------------------------------------------------------------
+// Resource Schema — declarative UI indicators (no TypeScript required)
+// ---------------------------------------------------------------------------
+
+/**
+ * Declares a character or world resource that should be displayed as a UI
+ * indicator in the game client. Resources are read-only display constructs —
+ * the underlying data is written by mechanics via worldPatch / characterPatch.
+ *
+ * @example
+ * // resources/hp.json
+ * { "id": "hp", "label": "HP", "source": "character", "stateKey": "hp", "type": "number" }
+ *
+ * // resources/inventory.json
+ * { "id": "inventory", "label": "Inventory", "source": "characterState",
+ *   "stateKey": "inventory", "type": "list", "defaultValue": [] }
+ */
+export interface ResourceSchema {
+  /** Unique identifier. Used as a React key in the UI. */
+  id: string;
+  /** Human-readable label shown in the indicator: "HP", "Gold", "Inventory". */
+  label: string;
+  /**
+   * Where the value lives in the state response:
+   *   "character"      → session.character  (CharacterInfo: hp, level, name, className)
+   *   "characterState" → characterState      (session-local key/value store)
+   *   "worldState"     → worldState          (shared campaign state)
+   */
+  source: "character" | "characterState" | "worldState";
+  /**
+   * Dot-path to the value within the source object.
+   * Examples: "hp", "gold", "inventory", "sessionLoot.length"
+   */
+  stateKey: string;
+  /** How the UI should format the value. */
+  type: "number" | "text" | "list" | "boolean";
+  /**
+   * Shown when the key does not exist in the source object yet.
+   * Prevents blank indicators before onCharacterCreated runs.
+   * Defaults to "—" if omitted.
+   */
+  defaultValue?: string | number | boolean | unknown[];
+  /** Optional UI display hint. Defaults to "compact". */
+  display?: "compact" | "badge";
+}
+
+/** Type-safe helper — returns the resource schema as-is (identity). */
+export const defineResource = (schema: ResourceSchema): ResourceSchema => schema;
 
 // ---------------------------------------------------------------------------
 // Suggested actions

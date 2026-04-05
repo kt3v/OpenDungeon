@@ -1,99 +1,117 @@
 # @opendungeon/game-classic
 
-The classic RPG module for the OpenDungeon engine, providing a baseline fantasy experience.
+The reference implementation for OpenDungeon. This module demonstrates **TypeScript mode** — the full-power approach for games that need complex stateful mechanics.
 
-## Features
+> **Starting a new game?** Use the declarative scaffold instead — no TypeScript required:
+> ```bash
+> pnpm od create-module ../my-game
+> ```
+> See [Creating a Game](../../docs/creating-a-game.md).
 
-- **Classes**: Warrior, Mage, Ranger — each with unique starting stats
-- **Locations**: Dungeons, forests, and villages with per-player positioning
-- **Mechanics**: Exploration skills, loot extraction, roguelite session end
-- **Setting**: Complete world bible with factions, locations, and lore
+---
 
-## Project Structure
+## What this module demonstrates
+
+- **Per-player location** — each character has a private location in a shared world (`location.ts`)
+- **Roguelite extraction** — session loot accumulates, only persists if you escape (`extraction.ts`)
+- **Cross-session state** — loot survives across sessions when the player extracts successfully
+- **TypeScript + JSON coexistence** — complex mechanics in `.ts`, simple rules in `skills/*.json`
+- **Setting system** — structured `setting.json` + rich markdown lore in `lore/`
+- **Resource indicators** — HP, gold, inventory, location mapped to UI via `resources/*.json`
+
+---
+
+## Project structure
 
 ```
-├── setting.json          # World bible (era, tone, themes, taboos)
-├── lore/                 # Markdown lore files
-│   ├── locations.md      # Notable places in the world
-│   └── factions.md       # Organizations and powers
-├── skills/               # Declarative JSON skills
-│   ├── look.json         # Observe surroundings
-│   ├── listen.json       # Listen for sounds
-│   ├── inspect.json      # Examine objects
-│   ├── stealth.json      # Hide and move silently
-│   ├── camp.json         # Rest at campfire
-│   └── revive.json       # Use revival token
-├── src/
-│   ├── index.ts          # Game module entry point
-│   ├── content/
-│   │   ├── classes.ts    # Character class definitions
-│   │   └── dm-config.ts  # DM prompts and guardrails
-│   └── mechanics/
-│       ├── location.ts   # Per-player positioning
-│       └── extraction.ts # Loot accumulation + session end
-└── package.json
+packages/game-example/
+  manifest.json             # Module metadata (entry: "dist/index.js")
+  setting.json              # World bible (era, tone, themes, taboos)
+  package.json
+  tsconfig.json
+
+  lore/                     # Markdown lore — auto-injected into DM
+    locations.md
+    factions.md
+
+  skills/                   # JSON skills — no TypeScript needed
+    look.json               # resolve: "ai" — DM describes surroundings
+    listen.json             # resolve: "ai" — DM describes sounds
+    inspect.json            # resolve: "ai" — DM examines objects
+    stealth.json            # resolve: "ai" — stealth rules and context
+    camp.json               # resolve: "deterministic" — rest action
+    revive.json             # resolve: "deterministic" — revival token use
+
+  resources/                # UI indicators — no TypeScript needed
+    hp.json
+    gold.json
+    inventory.json
+    location.json
+
+  src/
+    index.ts                # defineGameModule() entry point
+    content/
+      classes.ts            # Warrior, Mage, Ranger — starting stats
+      dm-config.ts          # DM prompt, tool policy, guardrails
+    mechanics/
+      location.ts           # Hooks location from worldPatch into characterPatch (per-player)
+      extraction.ts         # Accumulates session loot, surfaces Extract action at exits
 ```
+
+---
+
+## Why TypeScript mechanics here?
+
+### `location.ts`
+
+The location mechanic intercepts every action result (`onActionResolved`) and moves the `location` key from `worldPatch` (shared) to `characterPatch` (private). This keeps each player's position hidden from others — a behaviour that can't be expressed in a JSON hook because it requires reading and modifying the DM's output dynamically.
+
+### `extraction.ts`
+
+The extraction mechanic:
+1. Resets session state on start (`onSessionStart`): clears `sessionLoot`, `nearExit`
+2. Intercepts action results (`onActionResolved`): collects `lootFound` from DM output
+3. Surfaces the Extract action only when `nearExit === true`
+4. On session end (`onSessionEnd`): transfers `sessionLoot` to `persistedLoot` only on `"extraction_success"`
+
+This cross-session accumulation logic requires reading dynamic state and making conditional decisions — beyond what a static JSON hook can express.
+
+---
 
 ## Setting / World Bible
 
-The module demonstrates the two-layer setting system:
-
-### Layer 1: Structured Config (`setting.json`)
+### `setting.json` (structured config)
 
 ```json
 {
   "name": "OpenDungeon Classic",
-  "description": "A grounded fantasy world...",
   "era": "Medieval",
   "realismLevel": "soft",
   "tone": "grounded fantasy — sensory, concise",
   "themes": ["exploration", "survival", "heroism"],
-  "magicSystem": "Magic exists but is uncommon and dangerous...",
-  "taboos": [
-    "No modern technology or concepts",
-    "No resurrection or easy revival",
-    "No teleportation"
-  ]
+  "taboos": ["No modern technology", "No resurrection", "No teleportation"]
 }
 ```
 
-### Layer 2: Markdown Lore (`lore/`)
+### `lore/` (markdown)
 
-- **locations.md** — The Shattered Spires, Mournwood, Sunken Citadel
-- **factions.md** — The Covenant of Ashes, Unseen College, Wardens of the Wood
+- **`locations.md`** — The Shattered Spires, Mournwood, Sunken Citadel
+- **`factions.md`** — The Covenant of Ashes, Unseen College, Wardens of the Wood
 
-### How It Works
+Both layers are automatically injected into every DM system prompt.
 
-The setting is loaded in `src/index.ts`:
+---
 
-```typescript
-import { loadLoreFilesSync } from "@opendungeon/content-sdk";
-import settingConfig from "../setting.json" with { type: "json" };
-
-export default defineGameModule({
-  // ...
-  setting: {
-    config: settingConfig,
-    loreFiles: loadLoreFilesSync(new URL("../lore", import.meta.url).pathname)
-  }
-});
-```
-
-This content is automatically injected into every DM system prompt before the base prompt and mechanic extensions.
-
-## Installation
+## Running locally
 
 ```bash
-npm install @opendungeon/game-classic
+# Build the module
+pnpm build -w @opendungeon/game-example
+
+# Point the engine at it
+# .env.local:
+GAME_MODULE_PATH=./packages/game-example
+
+# Start
+pnpm dev:full
 ```
-
-## Usage
-
-In your OpenDungeon instance, set the game module path:
-
-```bash
-# .env.local
-GAME_MODULE_PATH=/path/to/game-classic
-```
-
-Then start the engine normally with `pnpm od start`.

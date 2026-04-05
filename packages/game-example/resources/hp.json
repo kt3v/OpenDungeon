@@ -1,0 +1,7 @@
+{
+  "id": "hp",
+  "label": "HP",
+  "source": "character",
+  "stateKey": "hp",
+  "type": "number"
+}

@@ -1066,7 +1066,8 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       worldState: worldView,
       characterState: session.characterState,
       events: session.events,
-      createdAt: session.createdAt
+      createdAt: session.createdAt,
+      resourceSchema: loadedModule.gameModule.resources ?? []
     };
   });
 

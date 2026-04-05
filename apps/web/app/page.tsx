@@ -8,6 +8,16 @@ import {
   SessionScreen,
 } from "./screens/game-screens.js";
 
+type ResourceSchema = {
+  id: string;
+  label: string;
+  source: "character" | "characterState" | "worldState";
+  stateKey: string;
+  type: "number" | "text" | "list" | "boolean";
+  defaultValue?: string | number | boolean | unknown[];
+  display?: "compact" | "badge";
+};
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type SessionCharacter = {
@@ -65,6 +75,9 @@ export default function HomePage() {
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [sessionSummary, setSessionSummary] = useState("");
   const [isActionPending, setIsActionPending] = useState(false);
+  const [resourceSchemas, setResourceSchemas] = useState<ResourceSchema[]>([]);
+  const [characterState, setCharacterState] = useState<Record<string, unknown>>({});
+  const [worldState, setWorldState] = useState<Record<string, unknown>>({});
 
   // Navigation
   const [activeScreen, setActiveScreen] = useState<ScreenId>("auth");
@@ -282,6 +295,9 @@ export default function HomePage() {
       const data = await request(`/sessions/${sessionId}/state`, { headers: authHeaders });
       setEvents(data.events ?? []);
       setSessionSummary(typeof data.session?.summary === "string" ? data.session.summary : "");
+      setResourceSchemas(data.resourceSchema ?? []);
+      setCharacterState(data.characterState ?? {});
+      setWorldState(data.worldState ?? {});
     } catch {
       // silent
     }
@@ -633,6 +649,35 @@ export default function HomePage() {
           padding-bottom: 4px;
         }
 
+        /* ── Resource Indicators ─────────────────────────────────────── */
+        .resource-indicators {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          padding: 0 0 8px;
+        }
+        .resource-indicator {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 5px 12px;
+          background: var(--bg-card);
+          border: 1px solid var(--border);
+          border-radius: 100px;
+          font-size: 12px;
+          white-space: nowrap;
+        }
+        .resource-label {
+          color: var(--text-faint);
+          font-weight: 500;
+          text-transform: uppercase;
+          letter-spacing: 0.07em;
+        }
+        .resource-value {
+          color: var(--gold-hi);
+          font-weight: 500;
+        }
+
         /* ── List ─────────────────────────────────────────────────────── */
         .list-area {
           display: flex;
@@ -946,6 +991,10 @@ export default function HomePage() {
           setActionText={setActionText}
           onSendAction={(prompt) => void submitAction(prompt)}
           onBack={() => setActiveScreen("session")}
+          resourceSchemas={resourceSchemas}
+          sessionCharacter={sessions.find(s => s.id === selectedSessionId)?.character ?? { name: "", className: "", level: 1, hp: 0 }}
+          characterState={characterState}
+          worldState={worldState}
         />
       )}
     </main>

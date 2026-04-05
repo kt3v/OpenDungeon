@@ -11,7 +11,7 @@ Shared schemas, constants, and utilities for the OpenDungeon RPG engine.
 ## Installation
 
 ```bash
-npm install @opendungeon/shared
+pnpm add @opendungeon/shared
 ```
 
 ## Usage

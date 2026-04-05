@@ -1,0 +1,8 @@
+{
+  "id": "location",
+  "label": "Location",
+  "source": "characterState",
+  "stateKey": "location",
+  "type": "text",
+  "defaultValue": "unknown"
+}

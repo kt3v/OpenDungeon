@@ -1,7 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { GameModule } from "@opendungeon/content-sdk";
+import type { GameModule, TypeScriptModuleExtension } from "@opendungeon/content-sdk";
 import { moduleManifestSchema } from "@opendungeon/shared";
 
 export interface LoadedGameModule {
@@ -34,12 +34,19 @@ const readJsonFile = async (filePath: string): Promise<Record<string, unknown> |
   return parsed as Record<string, unknown>;
 };
 
+const DECLARATIVE_SENTINEL = "declarative";
+
 const resolveEntryPath = async (modulePath: string): Promise<string> => {
   const packageJson = await readJsonFile(resolve(modulePath, "package.json"));
   const manifestJson = await readJsonFile(resolve(modulePath, "manifest.json"));
 
   const packageMain = typeof packageJson?.main === "string" ? packageJson.main : undefined;
   const manifestEntry = typeof manifestJson?.entry === "string" ? manifestJson.entry : undefined;
+
+  // If entry is explicitly "declarative", no TypeScript extension needed
+  if (manifestEntry === DECLARATIVE_SENTINEL) {
+    return DECLARATIVE_SENTINEL;
+  }
 
   const candidates = [packageMain, manifestEntry, "src/index.ts", "src/index.js", "index.ts", "index.js"].filter(
     (value): value is string => Boolean(value)
@@ -52,30 +59,24 @@ const resolveEntryPath = async (modulePath: string): Promise<string> => {
     }
   }
 
-  throw new Error(
-    [
-      `Cannot resolve module entry for GAME_MODULE_PATH=${modulePath}`,
-      `Checked: ${candidates.join(", ") || "<none>"}`,
-      "Provide package.json#main, manifest.json#entry, or one of src/index.ts|src/index.js|index.ts|index.js"
-    ].join("\n")
-  );
+  // No TypeScript entry found — will use declarative-only mode
+  return DECLARATIVE_SENTINEL;
 };
 
-const assertGameModule = (value: unknown, sourcePath: string): GameModule => {
+const assertTypeScriptExtension = (value: unknown, sourcePath: string): TypeScriptModuleExtension => {
   if (!value || typeof value !== "object") {
     throw new Error(`Loaded module from ${sourcePath} is not an object export`);
   }
 
-  const maybeModule = value as Partial<GameModule> & { manifest?: unknown };
+  const maybeExt = value as Partial<TypeScriptModuleExtension>;
 
-  if (!Array.isArray(maybeModule.mechanics)) {
+  if (!Array.isArray(maybeExt.mechanics)) {
     throw new Error(
-      `Loaded module from ${sourcePath} does not export a valid GameModule (missing mechanics array)`
+      `Loaded module from ${sourcePath} does not export a valid TypeScriptModuleExtension (missing mechanics array)`
     );
   }
 
-  moduleManifestSchema.parse(maybeModule.manifest);
-  return maybeModule as GameModule;
+  return maybeExt as TypeScriptModuleExtension;
 };
 
 export const loadGameModuleFromPath = async (modulePathEnv: string | undefined): Promise<LoadedGameModule> => {
@@ -86,13 +87,45 @@ export const loadGameModuleFromPath = async (modulePathEnv: string | undefined):
   const resolutionBase = process.env.INIT_CWD && process.env.INIT_CWD.trim() ? process.env.INIT_CWD : process.cwd();
   const modulePath = resolve(resolutionBase, modulePathEnv.trim());
   const entryPath = await resolveEntryPath(modulePath);
-  const loaded = await import(pathToFileURL(entryPath).href);
-  const exportedValue = "default" in loaded ? loaded.default : loaded;
-  const gameModule = assertGameModule(exportedValue, entryPath);
+
+  // Load declarative base (always — this is the foundation)
+  const { loadDeclarativeModuleBase } = await import("@opendungeon/content-sdk");
+  const { base, mechanics: declarativeMechanics, warnings } = loadDeclarativeModuleBase(modulePath);
+
+  for (const warning of warnings) {
+    console.warn(`[module-loader] ${warning}`);
+  }
+
+  let finalMechanics = declarativeMechanics;
+
+  // If there's a TypeScript entry point, load and merge additional mechanics
+  if (entryPath !== DECLARATIVE_SENTINEL) {
+    try {
+      const loaded = await import(pathToFileURL(entryPath).href);
+      const exportedValue = "default" in loaded ? loaded.default : loaded;
+      const tsExtension = assertTypeScriptExtension(exportedValue, entryPath);
+
+      // Merge: declarative mechanics first, then TypeScript
+      finalMechanics = [...declarativeMechanics, ...tsExtension.mechanics];
+
+      console.log(`[module-loader] Loaded TypeScript extension with ${tsExtension.mechanics.length} mechanics`);
+    } catch (err) {
+      console.warn(`[module-loader] Failed to load TypeScript extension from ${entryPath}: ${err}`);
+      // Continue with declarative-only
+    }
+  }
+
+  const gameModule: GameModule = {
+    ...base,
+    mechanics: finalMechanics
+  };
+
+  // Validate the manifest
+  moduleManifestSchema.parse(gameModule.manifest);
 
   return {
     modulePath,
-    entryPath,
+    entryPath: entryPath === DECLARATIVE_SENTINEL ? "declarative" : entryPath,
     gameModule
   };
 };

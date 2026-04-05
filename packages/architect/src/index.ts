@@ -10,6 +10,13 @@ export type { ExecutionReport } from "./executor.js";
 
 export { ArchitectRuntime } from "./architect.js";
 export { SkillSuggestionRuntime } from "./skill-suggester.js";
+export { GameScaffolderRuntime } from "./game-scaffolder.js";
+export type {
+  ScaffoldInput,
+  ScaffoldOutput,
+  ScaffoldFile,
+  GameScaffolderRuntimeOptions
+} from "./game-scaffolder.js";
 export type {
   IntentPattern,
   SkillSuggestion,

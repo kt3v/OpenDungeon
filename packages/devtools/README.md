@@ -10,7 +10,7 @@ CLI and development tools for creating and validating OpenDungeon modules.
 ## Installation
 
 ```bash
-npm install -g @opendungeon/devtools
+pnpm add -g @opendungeon/devtools
 ```
 
 ## Usage

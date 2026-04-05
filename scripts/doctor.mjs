@@ -72,10 +72,10 @@ const main = async () => {
     hasHardFailures = true;
   }
 
-  if (hasCommand("npm")) {
-    messages.push(ok("npm", getCommandOutput("npm") ?? "available"));
+  if (hasCommand("pnpm")) {
+    messages.push(ok("pnpm", getCommandOutput("pnpm") ?? "available"));
   } else {
-    messages.push(fail("npm", "not found in PATH"));
+    messages.push(fail("pnpm", "not found in PATH"));
     hasHardFailures = true;
   }
 
@@ -136,11 +136,11 @@ const main = async () => {
   process.stdout.write("\n");
 
   if (hasHardFailures) {
-    process.stdout.write("\nSome required dependencies are missing. Fix FAIL items and run `npm run doctor` again.\n");
+    process.stdout.write("\nSome required dependencies are missing. Fix FAIL items and run `pnpm doctor` again.\n");
     process.exit(1);
   }
 
-  process.stdout.write("\nEnvironment looks good. Next step: npm run setup\n");
+  process.stdout.write("\nEnvironment looks good. Next step: pnpm setup\n");
 };
 
 await main();

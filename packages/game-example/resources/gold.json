@@ -1,0 +1,8 @@
+{
+  "id": "gold",
+  "label": "Gold",
+  "source": "characterState",
+  "stateKey": "gold",
+  "type": "number",
+  "defaultValue": 0
+}
