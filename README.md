@@ -38,6 +38,9 @@ pnpm od configure llm # Pick your LLM provider interactively
 pnpm od start        # Launches gateway (:3001) and web UI (:3000)
 ```
 
+`pnpm od configure llm` now includes presets for `Ollama` (local + cloud), `OpenAI`, `Anthropic`, `OpenRouter`, `Groq`, `Together`, and simplified `MiniMax` setup.
+You can also copy ready-to-edit provider templates from `env-profiles/`.
+
 Your selected game module will be prepared in the `games/` directory. Open `http://localhost:3000` to create your first campaign.
 
 ---

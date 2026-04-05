@@ -8,8 +8,74 @@ const ENV_LOCAL_PATH = resolve(process.cwd(), ".env.local");
 
 const PROVIDERS = [
   {
+    id: "ollama-local",
+    label: "Ollama (Local, OpenAI-compatible)",
+    flow: "ollama-local"
+  },
+  {
+    id: "ollama-cloud",
+    label: "Ollama (Cloud models)",
+    flow: "ollama-cloud"
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    flow: "openai-preset",
+    defaults: {
+      baseUrl: "https://api.openai.com/v1",
+      endpointPath: "/chat/completions",
+      modelPrompt: "Model id (e.g. gpt-4.1-mini): "
+    },
+    apiKeyLabel: "OpenAI"
+  },
+  {
+    id: "openrouter",
+    label: "OpenRouter (OpenAI-compatible)",
+    flow: "openai-preset",
+    defaults: {
+      baseUrl: "https://openrouter.ai/api/v1",
+      endpointPath: "/chat/completions",
+      modelPrompt: "Model id (e.g. openai/gpt-4o-mini): "
+    },
+    apiKeyLabel: "OpenRouter"
+  },
+  {
+    id: "groq",
+    label: "Groq (OpenAI-compatible)",
+    flow: "openai-preset",
+    defaults: {
+      baseUrl: "https://api.groq.com/openai/v1",
+      endpointPath: "/chat/completions",
+      modelPrompt: "Model id (e.g. llama-3.3-70b-versatile): "
+    },
+    apiKeyLabel: "Groq"
+  },
+  {
+    id: "together",
+    label: "Together AI (OpenAI-compatible)",
+    flow: "openai-preset",
+    defaults: {
+      baseUrl: "https://api.together.ai/v1",
+      endpointPath: "/chat/completions",
+      modelPrompt: "Model id (e.g. meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo): "
+    },
+    apiKeyLabel: "Together"
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    flow: "anthropic-preset",
+    defaults: {
+      baseUrl: "https://api.anthropic.com/v1",
+      endpointPath: "/v1/messages",
+      anthropicVersion: "2023-06-01",
+      modelPrompt: "Model id (e.g. claude-3-5-haiku-latest): "
+    },
+    apiKeyLabel: "Anthropic"
+  },
+  {
     id: "minimax",
-    label: "MiniMax (OpenAI-compatible)",
+    label: "MiniMax (Anthropic-compatible preset)",
     flow: "minimax"
   },
   {
@@ -18,14 +84,14 @@ const PROVIDERS = [
     flow: "codex"
   },
   {
-    id: "openai-compatible",
+    id: "openai-compatible-custom",
     label: "Custom OpenAI-compatible",
-    flow: "custom"
+    flow: "custom-openai"
   },
   {
-    id: "anthropic-compatible",
-    label: "Anthropic-compatible",
-    flow: "anthropic"
+    id: "anthropic-compatible-custom",
+    label: "Custom Anthropic-compatible",
+    flow: "custom-anthropic"
   },
   {
     id: "mock",
@@ -59,6 +125,22 @@ const parseEnv = (content) => {
   }
 
   return { map, order };
+};
+
+const askYesNo = async (rl, question, defaultYes = false) => {
+  const normalizedDefault = defaultYes ? "y" : "n";
+  while (true) {
+    const answer = (await rl.question(question)).trim().toLowerCase();
+    if (!answer) {
+      return normalizedDefault === "y";
+    }
+    if (answer === "y" || answer === "yes") {
+      return true;
+    }
+    if (answer === "n" || answer === "no") {
+      return false;
+    }
+  }
 };
 
 const stringifyEnv = ({ map, order }) => {
@@ -257,24 +339,128 @@ const configureProvider = async (rl, providerType) => {
   }
 
   if (selected.flow === "minimax") {
+    output.write("\nMiniMax quick setup (Anthropic-compatible preset)\n");
+    output.write("This mode uses safe defaults and asks only for required fields.\n\n");
+
     const apiKey = await ensureNonEmpty(rl, "MiniMax API key: ");
-    const baseUrl = await ensureNonEmpty(
-      rl,
-      "Base URL (default https://api.minimax.io/anthropic): ",
-      "https://api.minimax.io/anthropic"
-    );
-    const anthropicVersion = await ensureNonEmpty(rl, "Anthropic version (default 2023-06-01): ", "2023-06-01");
+    const advanced = await askYesNo(rl, "Advanced settings? (y/N): ");
+
+    const baseUrl = advanced
+      ? await ensureNonEmpty(
+          rl,
+          "Base URL (default https://api.minimax.io/anthropic): ",
+          "https://api.minimax.io/anthropic"
+        )
+      : "https://api.minimax.io/anthropic";
+    const anthropicVersion = advanced
+      ? await ensureNonEmpty(rl, "Anthropic version (default 2023-06-01): ", "2023-06-01")
+      : "2023-06-01";
+    const endpointPath = advanced
+      ? await ensureNonEmpty(rl, "Endpoint path (default /v1/messages): ", "/v1/messages")
+      : "/v1/messages";
+
     output.write("Checking available models (Anthropic-compatible)...\n");
     const models = await probeAnthropicModels({ baseUrl, apiKey, anthropicVersion });
-    const model = await chooseModel(rl, models, "Model id (from MiniMax docs/dashboard): ");
+    const model = await chooseModel(rl, models, "Model id (e.g. MiniMax-M2.7): ");
 
     return {
       LLM_PROVIDER: "anthropic-compatible",
       LLM_BASE_URL: baseUrl,
       LLM_API_KEY: apiKey,
       LLM_MODEL: model,
-      LLM_ENDPOINT_PATH: "/v1/messages",
+      LLM_ENDPOINT_PATH: endpointPath,
       LLM_ANTHROPIC_VERSION: anthropicVersion,
+      LLM_EXTRA_HEADERS_JSON: ""
+    };
+  }
+
+  if (selected.flow === "ollama-local") {
+    output.write("\nOllama local setup\n");
+    output.write("No API key is required by Ollama local API.\n");
+    output.write("A placeholder key is stored because OpenAI SDK-compatible clients require one.\n\n");
+
+    const advanced = await askYesNo(rl, "Advanced settings? (y/N): ");
+    const baseUrl = advanced
+      ? await ensureNonEmpty(rl, "Base URL (default http://localhost:11434/v1): ", "http://localhost:11434/v1")
+      : "http://localhost:11434/v1";
+    const endpointPath = advanced
+      ? await ensureNonEmpty(rl, "Endpoint path (default /chat/completions): ", "/chat/completions")
+      : "/chat/completions";
+
+    output.write("Checking available models...\n");
+    const models = await probeModels({ baseUrl, apiKey: "ollama" });
+    const model = await chooseModel(rl, models, "Model id (e.g. qwen3:8b): ");
+
+    return {
+      LLM_PROVIDER: "openai-compatible",
+      LLM_BASE_URL: baseUrl,
+      LLM_API_KEY: "ollama",
+      LLM_MODEL: model,
+      LLM_ENDPOINT_PATH: endpointPath,
+      LLM_ANTHROPIC_VERSION: "2023-06-01",
+      LLM_EXTRA_HEADERS_JSON: ""
+    };
+  }
+
+  if (selected.flow === "ollama-cloud") {
+    output.write("\nOllama cloud setup\n");
+    output.write("Choose one mode:\n");
+    output.write("1) Direct cloud API (requires OLLAMA_API_KEY)\n");
+    output.write("2) Local relay after `ollama signin` (uses local endpoint)\n\n");
+
+    let cloudMode;
+    while (!cloudMode) {
+      const answer = (await rl.question("Choose mode (1-2): ")).trim();
+      if (answer === "1" || answer === "2") {
+        cloudMode = answer;
+      }
+    }
+
+    const advanced = await askYesNo(rl, "Advanced settings? (y/N): ");
+
+    if (cloudMode === "1") {
+      const apiKey = await ensureNonEmpty(rl, "Ollama API key: ");
+      const baseUrl = advanced
+        ? await ensureNonEmpty(rl, "Base URL (default https://ollama.com/v1): ", "https://ollama.com/v1")
+        : "https://ollama.com/v1";
+      const endpointPath = advanced
+        ? await ensureNonEmpty(rl, "Endpoint path (default /chat/completions): ", "/chat/completions")
+        : "/chat/completions";
+
+      output.write("Checking available models...\n");
+      const models = await probeModels({ baseUrl, apiKey });
+      const model = await chooseModel(rl, models, "Model id (e.g. gpt-oss:120b): ");
+
+      return {
+        LLM_PROVIDER: "openai-compatible",
+        LLM_BASE_URL: baseUrl,
+        LLM_API_KEY: apiKey,
+        LLM_MODEL: model,
+        LLM_ENDPOINT_PATH: endpointPath,
+        LLM_ANTHROPIC_VERSION: "2023-06-01",
+        LLM_EXTRA_HEADERS_JSON: ""
+      };
+    }
+
+    output.write("Using local relay mode. Ensure you already ran `ollama signin`.\n");
+    const baseUrl = advanced
+      ? await ensureNonEmpty(rl, "Base URL (default http://localhost:11434/v1): ", "http://localhost:11434/v1")
+      : "http://localhost:11434/v1";
+    const endpointPath = advanced
+      ? await ensureNonEmpty(rl, "Endpoint path (default /chat/completions): ", "/chat/completions")
+      : "/chat/completions";
+
+    output.write("Checking available models...\n");
+    const models = await probeModels({ baseUrl, apiKey: "ollama" });
+    const model = await chooseModel(rl, models, "Cloud model id (e.g. gpt-oss:120b-cloud): ");
+
+    return {
+      LLM_PROVIDER: "openai-compatible",
+      LLM_BASE_URL: baseUrl,
+      LLM_API_KEY: "ollama",
+      LLM_MODEL: model,
+      LLM_ENDPOINT_PATH: endpointPath,
+      LLM_ANTHROPIC_VERSION: "2023-06-01",
       LLM_EXTRA_HEADERS_JSON: ""
     };
   }
@@ -305,26 +491,88 @@ const configureProvider = async (rl, providerType) => {
     };
   }
 
-  if (selected.flow === "anthropic") {
-    const apiKey = await ensureNonEmpty(rl, "Anthropic API key: ");
+  if (selected.flow === "anthropic-preset" || selected.flow === "custom-anthropic") {
+    const isPreset = selected.flow === "anthropic-preset";
+    const defaults = selected.defaults ?? {
+      baseUrl: "https://api.anthropic.com/v1",
+      endpointPath: "/v1/messages",
+      anthropicVersion: "2023-06-01",
+      modelPrompt: "Model id: "
+    };
+    const keyLabel = selected.apiKeyLabel ?? "Anthropic";
+
+    const apiKey = await ensureNonEmpty(rl, `${keyLabel} API key: `);
+    const advanced = isPreset ? await askYesNo(rl, "Advanced settings? (y/N): ") : true;
+
     const baseUrl = await ensureNonEmpty(
       rl,
-      "Base URL (default https://api.anthropic.com/v1): ",
-      "https://api.anthropic.com/v1"
+      `Base URL (default ${defaults.baseUrl}): `,
+      defaults.baseUrl
     );
-    const anthropicVersion = await ensureNonEmpty(rl, "Anthropic version (default 2023-06-01): ", "2023-06-01");
+    const anthropicVersion = await ensureNonEmpty(
+      rl,
+      `Anthropic version (default ${defaults.anthropicVersion}): `,
+      defaults.anthropicVersion
+    );
     output.write("Checking available models...\n");
     const models = await probeAnthropicModels({ baseUrl, apiKey, anthropicVersion });
-    const model = await chooseModel(rl, models, "Model id: ");
+    const model = await chooseModel(rl, models, defaults.modelPrompt ?? "Model id: ");
+    const endpointPath = advanced
+      ? await ensureNonEmpty(rl, `Endpoint path (default ${defaults.endpointPath}): `, defaults.endpointPath)
+      : defaults.endpointPath;
 
     return {
       LLM_PROVIDER: "anthropic-compatible",
       LLM_BASE_URL: baseUrl,
       LLM_API_KEY: apiKey,
       LLM_MODEL: model,
-      LLM_ENDPOINT_PATH: "/v1/messages",
+      LLM_ENDPOINT_PATH: endpointPath,
       LLM_ANTHROPIC_VERSION: anthropicVersion,
       LLM_EXTRA_HEADERS_JSON: ""
+    };
+  }
+
+  if (selected.flow === "openai-preset") {
+    const defaults = selected.defaults ?? {
+      baseUrl: "https://api.openai.com/v1",
+      endpointPath: "/chat/completions",
+      modelPrompt: "Model id: "
+    };
+    const keyLabel = selected.apiKeyLabel ?? "Provider";
+    const apiKey = await ensureNonEmpty(rl, `${keyLabel} API key: `);
+    const advanced = await askYesNo(rl, "Advanced settings? (y/N): ");
+    const baseUrl = await ensureNonEmpty(rl, `Base URL (default ${defaults.baseUrl}): `, defaults.baseUrl);
+    const endpointPath = advanced
+      ? await ensureNonEmpty(rl, `Endpoint path (default ${defaults.endpointPath}): `, defaults.endpointPath)
+      : defaults.endpointPath;
+
+    let extraHeaders = {};
+    if (selected.id === "openrouter") {
+      const addHeaders = await askYesNo(rl, "Add optional OpenRouter app headers (HTTP-Referer, X-OpenRouter-Title)? (y/N): ");
+      if (addHeaders) {
+        const referer = (await rl.question("HTTP-Referer (optional): ")).trim();
+        const title = (await rl.question("X-OpenRouter-Title (optional): ")).trim();
+        if (referer) {
+          extraHeaders["HTTP-Referer"] = referer;
+        }
+        if (title) {
+          extraHeaders["X-OpenRouter-Title"] = title;
+        }
+      }
+    }
+
+    output.write("Checking available models...\n");
+    const models = await probeModels({ baseUrl, apiKey });
+    const model = await chooseModel(rl, models, defaults.modelPrompt ?? "Model id: ");
+
+    return {
+      LLM_PROVIDER: "openai-compatible",
+      LLM_BASE_URL: baseUrl,
+      LLM_API_KEY: apiKey,
+      LLM_MODEL: model,
+      LLM_ENDPOINT_PATH: endpointPath,
+      LLM_ANTHROPIC_VERSION: "2023-06-01",
+      LLM_EXTRA_HEADERS_JSON: Object.keys(extraHeaders).length > 0 ? JSON.stringify(extraHeaders) : ""
     };
   }
 
@@ -440,7 +688,18 @@ const run = async () => {
             output.write("No changes made.\n");
             return;
           }
+          selectedProvider = null;
         }
+      }
+
+      if (!selectedProvider) {
+        output.write("Fallback was skipped.\n");
+        output.write("\n" + "=".repeat(50) + "\n");
+        output.write("Setup complete!\n");
+        output.write("\nTest your configuration:\n");
+        output.write("  pnpm llm:probe -w @opendungeon/gateway\n");
+        output.write("\n");
+        return;
       }
 
       const values = await configureProvider(rl, selectedProvider);

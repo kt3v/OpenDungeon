@@ -15,6 +15,26 @@ OpenDungeon now includes a production-ready LLM gateway with a complete set of s
 
 ## Configuration (.env.local)
 
+If you use `pnpm od configure llm`, the interactive setup now includes presets for:
+
+- `Ollama` (Local + Cloud)
+- `OpenAI`
+- `Anthropic`
+- `OpenRouter`
+- `Groq`
+- `Together`
+- `MiniMax`
+
+Ready-to-copy templates are available in `env-profiles/`:
+
+- `ollama-local-openai-compatible.env.example`
+- `ollama-cloud-openai-compatible.env.example`
+- `openrouter-openai-compatible.env.example`
+- `groq-openai-compatible.env.example`
+- `together-openai-compatible.env.example`
+- `minimax-openai-compatible.env.example`
+- `codex-openai-compatible.env.example`
+
 ```bash
 # ============================================
 # Primary LLM (for gateway and architect)
@@ -62,6 +82,13 @@ GATEWAY_LLM_FALLBACK_MODEL=claude-3-haiku-20240307
 # ============================================
 LLM_ARCHITECT_MODEL=gpt-4o
 ```
+
+### Ollama modes
+
+- Local mode uses `http://localhost:11434/v1` and a placeholder API key (`ollama`) required by OpenAI-compatible clients.
+- Cloud mode supports two paths:
+  - direct cloud API: `https://ollama.com/v1` + `OLLAMA_API_KEY` (Bearer auth);
+  - local relay after `ollama signin`: local endpoint with cloud models.
 
 ## How It Works
 
