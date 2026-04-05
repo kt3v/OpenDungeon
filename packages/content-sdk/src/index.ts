@@ -1,6 +1,6 @@
 import type { ModuleManifest, SessionEndReason } from "@opendungeon/shared";
 
-export { loadSkillsDirSync } from "./node-utils.js";
+export { loadSkillsDirSync, loadLoreFilesSync } from "./node-utils.js";
 
 export type { SessionEndReason } from "@opendungeon/shared";
 
@@ -194,6 +194,14 @@ export interface GameModule {
   dm: DungeonMasterModuleConfig;
 
   /**
+   * Base setting / world bible configuration.
+   * Injected into every DM system prompt to establish the world tone,
+   * era, themes, and constraints. Supports both structured config and
+   * free-form markdown lore files.
+   */
+  setting?: GameModuleSetting;
+
+  /**
    * Ordered list of TypeScript mechanics. The engine calls hooks in this order.
    * Earlier mechanics take priority for action routing.
    */
@@ -365,6 +373,60 @@ export interface DungeonMasterModuleConfig {
   toolPolicy?: DungeonMasterToolPolicy;
   defaultSuggestedActions?: SuggestedAction[];
   suggestedActionStrategy?: SuggestedActionStrategy;
+}
+
+// ---------------------------------------------------------------------------
+// Setting / World Bible
+// ---------------------------------------------------------------------------
+
+/**
+ * Structured setting configuration for the game world.
+ * Defines the base lore, tone, and constraints that apply to all campaigns
+ * using this game module.
+ */
+export interface SettingConfig {
+  /** Human-readable name of the setting (e.g., "Shadowrealm", "Forgotten Realms") */
+  name?: string;
+  /** General description of the world */
+  description?: string;
+  /** Historical era (e.g., "Medieval", "Victorian", "Cyberpunk 2077") */
+  era?: string;
+  /** Level of realism: hard (gritty), soft (heroic), or cinematic (larger than life) */
+  realismLevel?: "hard" | "soft" | "cinematic";
+  /** Core themes of the setting (e.g., ["survival", "exploration", "political intrigue"]) */
+  themes?: string[];
+  /** Description of the magic system, if any */
+  magicSystem?: string;
+  /** Things that should NEVER appear in DM responses */
+  taboos?: string[];
+  /** Tone guidelines (e.g., "grimdark", "hopeful", "whimsical") */
+  tone?: string;
+  /**
+   * Additional arbitrary fields for setting-specific customization.
+   * These are injected into the DM prompt as key-value pairs.
+   */
+  custom?: Record<string, string>;
+}
+
+/**
+ * A lore file entry loaded from the lore/ directory.
+ */
+export interface LoreFile {
+  /** Filename (e.g., "magic-system.md") */
+  file: string;
+  /** Full markdown content */
+  content: string;
+}
+
+/**
+ * Complete setting definition for a game module.
+ * Combines structured SettingConfig with optional markdown lore files.
+ */
+export interface GameModuleSetting {
+  /** Structured setting configuration */
+  config?: SettingConfig;
+  /** Markdown lore files loaded from the lore/ directory */
+  loreFiles?: LoreFile[];
 }
 
 // ---------------------------------------------------------------------------
@@ -614,3 +676,71 @@ const sanitizeSuggestedActionList = (
     }))
     .filter((action) => Boolean(action.id && action.label && action.prompt))
     .slice(0, guardrails.maxSuggestedActions);
+
+// ---------------------------------------------------------------------------
+// Setting / Lore rendering
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders a SettingConfig into a formatted string for the DM system prompt.
+ * Includes all structured fields plus custom fields.
+ */
+export const renderSettingConfig = (config: SettingConfig): string => {
+  const lines: string[] = ["## Setting"];
+
+  if (config.name) lines.push(`Name: ${config.name}`);
+  if (config.description) lines.push(`Description: ${config.description}`);
+  if (config.era) lines.push(`Era: ${config.era}`);
+  if (config.realismLevel) lines.push(`Realism: ${config.realismLevel}`);
+  if (config.tone) lines.push(`Tone: ${config.tone}`);
+
+  if (config.themes && config.themes.length > 0) {
+    lines.push(`Themes: ${config.themes.join(", ")}`);
+  }
+
+  if (config.magicSystem) {
+    lines.push("");
+    lines.push("### Magic System");
+    lines.push(config.magicSystem);
+  }
+
+  if (config.taboos && config.taboos.length > 0) {
+    lines.push("");
+    lines.push("### Taboos (NEVER include these)");
+    for (const taboo of config.taboos) {
+      lines.push(`- ${taboo}`);
+    }
+  }
+
+  if (config.custom) {
+    for (const [key, value] of Object.entries(config.custom)) {
+      lines.push(`${key}: ${value}`);
+    }
+  }
+
+  return lines.join("\n");
+};
+
+/**
+ * Combines SettingConfig with lore files into a single setting prompt section.
+ * Returns empty string if no setting is defined.
+ */
+export const renderGameModuleSetting = (setting?: GameModuleSetting): string => {
+  if (!setting) return "";
+
+  const sections: string[] = [];
+
+  if (setting.config) {
+    sections.push(renderSettingConfig(setting.config));
+  }
+
+  if (setting.loreFiles && setting.loreFiles.length > 0) {
+    for (const loreFile of setting.loreFiles) {
+      sections.push("");
+      sections.push(`## ${loreFile.file.replace(/\.md$/, "").replace(/_/g, " ")}`);
+      sections.push(loreFile.content);
+    }
+  }
+
+  return sections.join("\n");
+};

@@ -48,6 +48,7 @@ onActionSubmitted hooks  ← all mechanics in order; can modify or block
    • action text
    • worldState
    • list of available mechanic tools   ← each mechanic's actions
+   • setting / world bible (from setting.json + lore/)
    • system prompt + skill extensions
       │
       ├── mechanicCall → mechanic.validate → mechanic.resolve
@@ -65,6 +66,49 @@ ActionResult → player
 ```
 
 **Key property:** the DM is the router. It sees all registered mechanic tools and decides whether to invoke one or handle the action narratively. This means players can write in any language or phrasing — the DM understands intent, not keywords.
+
+### DM system prompt structure
+
+The DM system prompt is built in layers, injected in this order:
+
+1. **Setting / World Bible** (`setting.json` + `lore/*.md`)
+   - Defines era, realism level, tone, themes
+   - Establishes taboos (things to NEVER include)
+   - Provides magic system description
+   - Adds custom key-value pairs
+
+2. **DM Configuration** (`dm.systemPrompt` or `dm.promptTemplate`)
+   - Base instructions and tone
+   - Tool policy (which tools are allowed)
+   - Guardrails (output limits)
+
+3. **Mechanic Extensions** (`dmPromptExtension` hooks)
+   - Dynamic context based on current world state
+   - Skill-specific rules and constraints
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ System Prompt                                               │
+├─────────────────────────────────────────────────────────────┤
+│ ## Setting                                                  │
+│ Name: Shadowrealm                                           │
+│ Era: Medieval                                               │
+│ Realism: hard                                               │
+│ Taboos: - No resurrections                                  │
+│         - No modern tech                                    │
+├─────────────────────────────────────────────────────────────┤
+│ You are the Dungeon Master... (from dmConfig)               │
+├─────────────────────────────────────────────────────────────┤
+│ ## Extraction                                               │
+│ - Set nearExit when player reaches exit                     │
+│ - Session loot: 3 items                                     │
+│                                                             │
+│ ## Location                                                 │
+│ - Current location: dungeon_depths                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
 
 ---
 

@@ -8,7 +8,9 @@
   "files": [
     "dist",
     "manifest.json",
-    "skills"
+    "skills",
+    "lore",
+    "setting.json"
   ],
   "author": "indie indie <https://github.com/kt3v>",
   "license": "MIT",

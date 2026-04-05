@@ -84,6 +84,45 @@ For stateful cross-session logic, write a TypeScript mechanic. See [Creating a G
 
 ---
 
+## Setting / World Bible
+
+Define your world's lore, tone, and constraints in `setting.json`. This establishes the base world before any runtime lore is added:
+
+```json
+// setting.json
+{
+  "name": "Shadowrealm",
+  "description": "A grim fantasy world where magic is rare and dangerous...",
+  "era": "Medieval",
+  "realismLevel": "hard",
+  "tone": "dark and mysterious",
+  "themes": ["survival", "exploration", "moral ambiguity"],
+  "magicSystem": "Magic is scarce and corrupting. Spellcasters are feared...",
+  "taboos": [
+    "No resurrections or revivals",
+    "No modern technology or concepts",
+    "No teleportation"
+  ],
+  "custom": {
+    "currency": "Gold crowns and silver marks"
+  }
+}
+```
+
+For detailed world building, add Markdown files to your `lore/` directory:
+
+```markdown
+// lore/factions.md
+# Factions and Powers
+
+## The Covenant of Ashes
+A loose alliance of city-states that emerged after the Fall...
+```
+
+The setting is automatically injected into every DM prompt. See [Creating a Game](docs/creating-a-game.md) for the full guide.
+
+---
+
 ## Developer tooling (`pnpm od <command>`)
 
 ```bash

@@ -77,3 +77,51 @@ export const loadSkillsDirSync = (dirPath: string): SkillSchema[] => {
 
   return results;
 };
+
+/**
+ * Synchronously load all lore markdown files from a directory.
+ *
+ * Reads all `*.md` files from the directory and returns an array of
+ * { file, content } objects. Files that fail to read are skipped with a warning.
+ * Returns an empty array when the directory does not exist.
+ *
+ * @example
+ * ```typescript
+ * // game/index.ts
+ * import { defineGameModule, loadLoreFilesSync } from "@opendungeon/content-sdk";
+ *
+ * export default defineGameModule({
+ *   setting: {
+ *     loreFiles: loadLoreFilesSync(new URL("./lore", import.meta.url).pathname)
+ *   },
+ *   // ...
+ * });
+ * ```
+ */
+export const loadLoreFilesSync = (dirPath: string): Array<{ file: string; content: string }> => {
+  let files: string[];
+  try {
+    files = readdirSync(dirPath);
+  } catch {
+    return [];
+  }
+
+  const results: Array<{ file: string; content: string }> = [];
+
+  for (const file of files) {
+    if (!file.endsWith(".md")) continue;
+
+    const fullPath = join(dirPath, file);
+    let content: string;
+
+    try {
+      content = readFileSync(fullPath, "utf8");
+      results.push({ file, content });
+    } catch (err) {
+      console.warn(`[content-sdk] Failed to read lore file "${file}": ${String(err)}`);
+      continue;
+    }
+  }
+
+  return results;
+};

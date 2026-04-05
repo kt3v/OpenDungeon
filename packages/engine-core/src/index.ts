@@ -12,7 +12,7 @@ import type {
   StatePatch,
   SuggestedAction
 } from "@opendungeon/content-sdk";
-import { renderDungeonMasterPromptTemplate } from "@opendungeon/content-sdk";
+import { renderDungeonMasterPromptTemplate, renderGameModuleSetting } from "@opendungeon/content-sdk";
 import type { SessionEndReason } from "@opendungeon/shared";
 import { moduleManifestSchema } from "@opendungeon/shared";
 import { createProviderFromEnv, type LlmProvider } from "@opendungeon/providers-llm";
@@ -366,15 +366,21 @@ export class EngineRuntime {
   }
 
   /**
-   * Build the final DM system prompt by combining the module base prompt
-   * with each mechanic's dmPromptExtension.
+   * Build the final DM system prompt by combining:
+   * 1. Setting / world bible (if defined)
+   * 2. Module base prompt (promptTemplate or systemPrompt)
+   * 3. Each mechanic's dmPromptExtension
    */
   private buildSystemPrompt(
     worldState: Record<string, unknown>,
     campaignTitle?: string
   ): string {
-    const { dm } = this.gameModule;
+    const { dm, setting } = this.gameModule;
 
+    // Section 1: Setting / World Bible
+    const settingSection = renderGameModuleSetting(setting);
+
+    // Section 2: Base system prompt
     let base: string;
     if (dm.promptTemplate) {
       base = renderDungeonMasterPromptTemplate(dm.promptTemplate, { campaignTitle });
@@ -388,12 +394,19 @@ export class EngineRuntime {
       ].join("\n");
     }
 
+    // Section 3: Mechanic extensions
     const extensions = this.mechanics
       .filter((m) => typeof m.dmPromptExtension === "function")
       .map((m) => m.dmPromptExtension!({ worldState }))
       .filter(Boolean);
 
-    return extensions.length > 0 ? `${base}\n\n${extensions.join("\n\n")}` : base;
+    // Combine all sections
+    const parts: string[] = [];
+    if (settingSection) parts.push(settingSection);
+    parts.push(base);
+    if (extensions.length > 0) parts.push(extensions.join("\n\n"));
+
+    return parts.join("\n\n");
   }
 
   private async runSessionHooks(

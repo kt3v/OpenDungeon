@@ -171,7 +171,9 @@ const createFiles = ({ absTargetDir, packageName, contentSdkDependency, dryRun }
     files: [
       "dist",
       "manifest.json",
-      "skills"
+      "skills",
+      "lore",
+      "setting.json"
     ],
     scripts: {
       build: "tsc -p tsconfig.json",
@@ -206,7 +208,8 @@ const createFiles = ({ absTargetDir, packageName, contentSdkDependency, dryRun }
     include: ["src/**/*.ts"]
   };
 
-  const indexTs = `import { defineGameModule, loadSkillsDirSync } from "@opendungeon/content-sdk";
+  const indexTs = `import { defineGameModule, loadSkillsDirSync, loadLoreFilesSync } from "@opendungeon/content-sdk";
+import settingConfig from "../setting.json" assert { type: "json" };
 
 const manifest = ${JSON.stringify(manifest, null, 2)};
 
@@ -227,6 +230,17 @@ export default defineGameModule({
       hp: 100,
       attributes: { strength: 10, agility: 10, intellect: 10 }
     })
+  },
+
+  /**
+   * Setting / World Bible — base lore, tone, and constraints for all campaigns.
+   * This establishes the world before any runtime lore is added.
+   */
+  setting: {
+    /** Structured setting configuration from setting.json */
+    config: settingConfig,
+    /** Markdown lore files loaded from the lore/ directory */
+    loreFiles: loadLoreFilesSync(new URL("../lore", import.meta.url).pathname)
   },
 
   dm: {
@@ -265,6 +279,27 @@ export default defineGameModule({
     }
   };
 
+  const settingConfig = {
+    name: "Dark Realms",
+    description: "A grim fantasy world where magic is rare and dangerous, and survival is never guaranteed.",
+    era: "Medieval",
+    realismLevel: "hard",
+    tone: "dark and mysterious",
+    themes: ["survival", "exploration", "moral ambiguity"],
+    magicSystem: "Magic is scarce and corrupting. Spellcasters are feared and often hunted. Most magic requires blood sacrifice or deals with otherworldly entities.",
+    taboos: [
+      "No resurrections or revivals",
+      "No modern technology or concepts",
+      "No teleportation",
+      "No divine intervention"
+    ],
+    custom: {
+      currency: "Gold crowns and silver marks",
+      languages: "Common, Old Tongue (forbidden)",
+      religions: "The Silent Gods (dead), The Covenant (survivors)"
+    }
+  };
+
   const readme = `# ${packageName}
 
 Custom game module for OpenDungeon.
@@ -273,6 +308,8 @@ Custom game module for OpenDungeon.
 
 - \`skills/\`: Declarative JSON skills (no TypeScript needed).
 - \`src/\`: TypeScript mechanics and module entry point.
+- \`lore/\`: Markdown lore files for world building.
+- \`setting.json\`: Structured setting configuration (era, tone, themes, etc.).
 - \`manifest.json\`: Module metadata.
 
 ## Usage
@@ -286,6 +323,22 @@ Custom game module for OpenDungeon.
 \`GAME_MODULE_PATH=${absTargetDir}\`
 
 3. Start OpenDungeon normally.
+
+## Setting / World Bible
+
+Edit \`setting.json\` to define your world's:
+- **Era**: Historical period (Medieval, Victorian, Cyberpunk, etc.)
+- **Realism**: hard (gritty), soft (heroic), cinematic (larger than life)
+- **Themes**: Core narrative themes
+- **Magic System**: How magic works (if any)
+- **Taboos**: Things the DM should NEVER include
+- **Custom fields**: Any additional setting-specific data
+
+Add markdown files to \`lore/\` for detailed world building:
+- Factions and organizations
+- Geography and locations
+- History and timeline
+- Cultures and religions
 `;
 
   const files = [
@@ -295,7 +348,8 @@ Custom game module for OpenDungeon.
     { path: resolve(absTargetDir, ".gitignore"), content: "node_modules\ndist\n" },
     { path: resolve(absTargetDir, "README.md"), content: readme },
     { path: resolve(absTargetDir, "src/index.ts"), content: indexTs },
-    { path: resolve(absTargetDir, "skills/look.json"), content: JSON.stringify(lookSkill, null, 2) + "\n" }
+    { path: resolve(absTargetDir, "skills/look.json"), content: JSON.stringify(lookSkill, null, 2) + "\n" },
+    { path: resolve(absTargetDir, "setting.json"), content: JSON.stringify(settingConfig, null, 2) + "\n" }
   ];
 
   if (dryRun) {
@@ -308,6 +362,7 @@ Custom game module for OpenDungeon.
 
   mkdirSync(resolve(absTargetDir, "src"), { recursive: true });
   mkdirSync(resolve(absTargetDir, "skills"), { recursive: true });
+  mkdirSync(resolve(absTargetDir, "lore"), { recursive: true });
   for (const file of files) {
     writeFileSync(file.path, file.content, "utf8");
   }

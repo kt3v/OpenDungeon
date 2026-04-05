@@ -1,8 +1,9 @@
-import { defineGameModule, loadSkillsDirSync } from "@opendungeon/content-sdk";
+import { defineGameModule, loadSkillsDirSync, loadLoreFilesSync } from "@opendungeon/content-sdk";
 import { dmConfig } from "./content/dm-config.js";
 import { availableClasses, getCharacterTemplate } from "./content/classes.js";
 import { extractionMechanic } from "./mechanics/extraction.js";
 import { locationMechanic } from "./mechanics/location.js";
+import settingConfig from "../setting.json" with { type: "json" };
 
 const manifest = {
   name: "@opendungeon/game-classic",
@@ -27,6 +28,17 @@ export default defineGameModule({
   characters: {
     availableClasses,
     getTemplate: getCharacterTemplate
+  },
+
+  /**
+   * Setting / World Bible — base lore, tone, and constraints for all campaigns.
+   * This establishes the world before any runtime lore is added.
+   */
+  setting: {
+    /** Structured setting configuration from setting.json */
+    config: settingConfig as import("@opendungeon/content-sdk").SettingConfig,
+    /** Markdown lore files loaded from the lore/ directory */
+    loreFiles: loadLoreFilesSync(new URL("../lore", import.meta.url).pathname)
   },
 
   dm: dmConfig,

@@ -108,6 +108,64 @@ skills: loadSkillsDirSync(new URL("../skills", import.meta.url).pathname)
 
 ---
 
+## Setting / World Bible
+
+Define your world's base lore, tone, and constraints. This is injected into every DM system prompt before the base prompt and mechanic extensions.
+
+### Structured configuration (`setting.json`)
+
+```json
+{
+  "name": "Shadowrealm",
+  "description": "A grim fantasy world where magic is rare and dangerous...",
+  "era": "Medieval",
+  "realismLevel": "hard",
+  "tone": "dark and mysterious",
+  "themes": ["survival", "exploration", "moral ambiguity"],
+  "magicSystem": "Magic is scarce and corrupting...",
+  "taboos": [
+    "No resurrections or revivals",
+    "No modern technology or concepts"
+  ],
+  "custom": {
+    "currency": "Gold crowns and silver marks"
+  }
+}
+```
+
+- `realismLevel`: `"hard"` (gritty), `"soft"` (heroic), `"cinematic"` (larger than life)
+- `taboos`: Things the DM should NEVER include in responses
+- `custom`: Additional arbitrary key-value pairs
+
+### Markdown lore files (`lore/`)
+
+For detailed world building that doesn't fit in JSON:
+
+```markdown
+// lore/factions.md
+# Factions and Powers
+
+## The Covenant of Ashes
+A loose alliance of city-states...
+```
+
+### Loading in your module
+
+```typescript
+import { defineGameModule, loadLoreFilesSync } from "@opendungeon/content-sdk";
+import settingConfig from "../setting.json" with { type: "json" };
+
+export default defineGameModule({
+  // ... other properties
+  setting: {
+    config: settingConfig,
+    loreFiles: loadLoreFilesSync(new URL("../lore", import.meta.url).pathname)
+  }
+});
+```
+
+---
+
 ## TypeScript mechanics
 
 For logic that can't be expressed in JSON — cross-session persistence, intercepting DM output, stateful multi-step flows.
@@ -206,9 +264,12 @@ interface SkillSchema {
 | `defineMechanic` | Define a TypeScript mechanic with full type inference |
 | `defineSkill` | Define a typed skill schema object |
 | `loadSkillsDirSync` | Load all `*.json` skill files from a directory |
+| `loadLoreFilesSync` | Load all `*.md` lore files from a directory |
 | `GameModule` | Interface for the game module |
 | `Mechanic` | Interface for a TypeScript mechanic |
 | `SkillSchema` | Interface for a JSON skill |
+| `SettingConfig` | Interface for setting.json configuration |
+| `GameModuleSetting` | Interface for the complete setting (config + lore) |
 | `ActionResult` | Interface for action results |
 | `CharacterTemplate` | Interface for character class templates |
 | `DungeonMasterModuleConfig` | Interface for DM configuration |

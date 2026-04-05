@@ -257,12 +257,112 @@ This reads session logs, groups unhandled player intents by pattern, and generat
 
 ---
 
+## Setting / World Bible
+
+Establish your world's tone, constraints, and lore before players start. The setting is injected into every DM system prompt, ensuring consistent world-building across all campaigns.
+
+### Layer 1: Structured configuration (`setting.json`)
+
+Create a `setting.json` at your package root (sibling of `src/` and `skills/`):
+
+```json
+{
+  "name": "Shadowrealm",
+  "description": "A grim fantasy world where magic is rare and dangerous...",
+  "era": "Medieval",
+  "realismLevel": "hard",
+  "tone": "dark and mysterious",
+  "themes": ["survival", "exploration", "moral ambiguity"],
+  "magicSystem": "Magic is scarce and corrupting. Spellcasters are feared and often hunted.",
+  "taboos": [
+    "No resurrections or revivals",
+    "No modern technology or concepts",
+    "No teleportation",
+    "No divine intervention"
+  ],
+  "custom": {
+    "currency": "Gold crowns and silver marks",
+    "languages": "Common, Old Tongue (forbidden)"
+  }
+}
+```
+
+**Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `string` | Human-readable setting name |
+| `description` | `string` | General world description |
+| `era` | `string` | Historical period (Medieval, Victorian, Cyberpunk 2077, etc.) |
+| `realismLevel` | `"hard" \| "soft" \| "cinematic"` | Hard (gritty), soft (heroic), or cinematic (larger than life) |
+| `tone` | `string` | Narrative tone guidelines |
+| `themes` | `string[]` | Core narrative themes |
+| `magicSystem` | `string` | How magic works in your world (if any) |
+| `taboos` | `string[]` | Things the DM should NEVER include in responses |
+| `custom` | `Record<string, string>` | Additional arbitrary key-value pairs |
+
+### Layer 2: Markdown lore files (`lore/`)
+
+For detailed world building that doesn't fit in JSON. Create `.md` files in a `lore/` directory at your package root:
+
+```markdown
+<!-- lore/factions.md -->
+# Factions and Powers
+
+## The Covenant of Ashes
+A loose alliance of city-states that emerged after the Fall...
+
+## The Unseen College
+Magic users who operate in secret...
+```
+
+### Loading the setting in your module
+
+```typescript
+import { defineGameModule, loadSkillsDirSync, loadLoreFilesSync } from "@opendungeon/content-sdk";
+import settingConfig from "../setting.json" with { type: "json" };
+import { dmConfig } from "./content/dm-config.js";
+
+export default defineGameModule({
+  manifest: { /* ... */ },
+  initial: { worldState: () => ({}) },
+  characters: { /* ... */ },
+
+  // Setting establishes the world before any runtime lore
+  setting: {
+    config: settingConfig,
+    loreFiles: loadLoreFilesSync(new URL("../lore", import.meta.url).pathname)
+  },
+
+  dm: dmConfig,
+  mechanics: [/* ... */],
+  skills: loadSkillsDirSync(new URL("../skills", import.meta.url).pathname)
+});
+```
+
+**Important:** `lore/` should be at the **package root** (sibling of `src/` and `dist/`), not inside `src/`. This ensures the same path works from both source and compiled entry points.
+
+### How it works
+
+The setting content is automatically injected into every DM system prompt **before** the base prompt and mechanic extensions:
+
+```
+1. Setting (world bible)
+2. DM Config (prompts, instructions, guardrails)
+3. Mechanic Extensions (dynamic context based on world state)
+```
+
+This means the DM always sees the complete picture: world constraints + instructions + current state.
+
+---
+
 ## Reference
 
 `game-example` in `packages/` is the reference implementation. It shows:
-- A complete `defineGameModule` with skills + mechanics
+- A complete `defineGameModule` with setting, skills, and mechanics
 - The extraction mechanic (cross-session loot persistence)
 - The location mechanic (per-player position in a shared world)
 - DM config with `suggestedActionStrategy`
+- Setting with both structured config (`setting.json`) and markdown lore (`lore/`)
 
 See [Mechanics](./mechanics.md) for a full guide on both JSON skills and TypeScript mechanics.

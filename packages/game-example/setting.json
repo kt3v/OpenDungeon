@@ -1,0 +1,22 @@
+{
+  "name": "OpenDungeon Classic",
+  "description": "A grounded fantasy world where magic exists but is rare and dangerous. Heroes are mortal, resources are scarce, and the wilderness holds ancient secrets.",
+  "era": "Medieval",
+  "realismLevel": "soft",
+  "tone": "grounded fantasy — sensory, concise, keep momentum",
+  "themes": ["exploration", "survival", "heroism", "ancient mysteries"],
+  "magicSystem": "Magic exists but is uncommon and often dangerous. Most people live their whole lives without witnessing true magic. Spellcasters are rare and often feared or revered. Magic items are legendary artifacts, not common loot.",
+  "taboos": [
+    "No modern technology or concepts",
+    "No resurrection or easy revival",
+    "No teleportation or fast travel",
+    "No divine intervention or omnipotent gods",
+    "No anachronistic references or language"
+  ],
+  "custom": {
+    "currency": "Gold pieces, silver marks, copper commons",
+    "commonRaces": "Humans are dominant. Dwarves live in mountain holds. Elves are rare and reclusive.",
+    "worldFeel": "The world is old. Civilizations have risen and fallen. Ruins dot the landscape.",
+    "death": "Death is permanent and meaningful. The world is dangerous but not unfair."
+  }
+}
