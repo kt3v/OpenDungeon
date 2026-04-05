@@ -4,30 +4,20 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DRY_RUN=0
 KEEP_DB=0
+DELETE_GAMES=0
 
 print_help() {
   cat <<'EOF'
 OpenDungeon local state cleaner
 
 Usage:
-  ./scripts/clean-local-state.sh [--dry-run] [--keep-db]
+  ./scripts/clean-local-state.sh [--dry-run] [--keep-db] [--delete-games]
 
 Options:
-  --dry-run   Print actions without deleting/stopping anything
-  --keep-db   Skip `docker compose down`
-  -h, --help  Show this help
-
-What gets cleaned:
-  - docker compose services with volumes (unless --keep-db)
-  - node_modules/
-  - package-lock.json
-  - .env.local
-  - .turbo/
-  - .next/
-  - all dist/ directories
-  - all *.tsbuildinfo files
-
-This script does NOT run npm install/setup/dev.
+  --dry-run      Print actions without deleting/stopping anything
+  --keep-db      Skip `docker compose down`
+  --delete-games Delete all modules in the games/ directory
+  -h, --help     Show help
 EOF
 }
 
@@ -46,6 +36,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --keep-db)
       KEEP_DB=1
+      ;;
+    --delete-games)
+      DELETE_GAMES=1
       ;;
     -h|--help)
       print_help
@@ -72,11 +65,19 @@ fi
 
 run_cmd "rm -rf node_modules"
 run_cmd "rm -f package-lock.json"
+run_cmd "rm -f .env"
 run_cmd "rm -f .env.local"
 run_cmd "rm -rf .turbo"
 run_cmd "rm -rf .next"
 run_cmd "find . -type d -name dist -prune -exec rm -rf {} +"
 run_cmd "find . -type f -name '*.tsbuildinfo' -delete"
+
+if [[ "$DELETE_GAMES" -eq 1 ]]; then
+  echo "Deleting user game projects in games/..."
+  run_cmd "rm -rf games"
+else
+  echo "Keeping user game projects in games/ (use --delete-games to wipe them)"
+fi
 
 echo "Done. Reinstall manually when needed:"
 echo "  npm install"

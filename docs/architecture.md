@@ -8,7 +8,7 @@ OpenDungeon separates engine runtime from game content. The engine loads your ga
 
 ```
 ┌─────────────────────────────────────────────┐
-│                 your-game/                  │
+│             games/your-game/                │
 │   skills/          mechanics/    index.ts   │
 │   bargain.json     extraction.ts            │
 │   rest.json        location.ts              │

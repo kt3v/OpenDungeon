@@ -1,6 +1,6 @@
 # Creating a Game
 
-A game in OpenDungeon is a separate package that exports a `GameModule`. The engine loads it at startup — your game never touches engine internals.
+A game in OpenDungeon is a separate package that exports a `GameModule`. Game modules are stored in the `games/` directory at the project root. This directory is ignored by git, allowing you to develop your game without affecting the engine repository.
 
 ---
 
@@ -8,36 +8,36 @@ A game in OpenDungeon is a separate package that exports a `GameModule`. The eng
 
 ```bash
 # Scaffold a new game workspace
-pnpm create:game-module game-my-adventure
-cd game-my-adventure
+pnpm od setup        # and choose "Create a clean project"
+# OR manually:
+pnpm od create-module games/game-my-adventure --name @my-org/my-game
+
+cd games/game-my-adventure
 pnpm install
 
 # Point the engine at your game
 # In the engine's .env:
-GAME_MODULE_PATH=./game-my-adventure
+GAME_MODULE_PATH=./games/game-my-adventure
 
-# Run from the root
-pnpm start
+# Run from the project root
+pnpm od start
 ```
-
-The engine validates your `GameModule` on startup and fails fast with a clear error if anything is wrong.
 
 ---
 
 ## File structure
 
 ```
-my-game/
+games/my-game/             ← Your game workspace
   skills/                  ← JSON skill files — no TypeScript needed
     look.json
     bargain.json
   src/
     index.ts               ← root export: defineGameModule(...)
     content/
-      classes.ts           ← character templates (hp, attributes per class)
+      classes.ts           ← character templates
       dm-config.ts         ← DM prompts, guardrails, tool policy
-    mechanics/             ← TypeScript mechanics (complex stateful logic only)
-      extraction.ts
+    mechanics/             ← TypeScript mechanics (complex logic)
   manifest.json
   package.json
   tsconfig.json

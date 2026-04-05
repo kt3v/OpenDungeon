@@ -159,18 +159,22 @@ const main = async () => {
   // ASK FOR GAME MODULE CHOICE
   const moduleChoice = await askModuleType();
   const gameModuleDir = moduleChoice.name.startsWith("game-") ? moduleChoice.name : `game-${moduleChoice.name}`;
-  const gameModulePath = resolve(rootDir, gameModuleDir);
+  const gameModulePath = resolve(rootDir, "games", gameModuleDir);
+
+  if (!existsSync(resolve(rootDir, "games"))) {
+    mkdirSync(resolve(rootDir, "games"), { recursive: true });
+  }
 
   if (!existsSync(gameModulePath)) {
     if (moduleChoice.type === "example") {
-      process.stdout.write(`\nCopying example module to ./${gameModuleDir}...\n`);
+      process.stdout.write(`\nCopying example module to ./games/${gameModuleDir}...\n`);
       cpSync(resolve(rootDir, "game-example"), gameModulePath, { recursive: true });
     } else {
-      process.stdout.write(`\nGenerating new module in ./${gameModuleDir}...\n`);
-      run("node", [resolve(rootDir, "scripts", "create-game-module.mjs"), gameModuleDir, "--name", `@opendungeon/${moduleChoice.name}`]);
+      process.stdout.write(`\nGenerating new module in ./games/${gameModuleDir}...\n`);
+      run("node", [resolve(rootDir, "scripts", "create-game-module.mjs"), `games/${gameModuleDir}`, "--name", `@opendungeon/${moduleChoice.name}`]);
     }
   } else {
-    process.stdout.write(`\nFolder ./${gameModuleDir} already exists. Using it.\n`);
+    process.stdout.write(`\nFolder ./games/${gameModuleDir} already exists. Using it.\n`);
   }
 
   // Determine ideal ports
@@ -185,7 +189,7 @@ const main = async () => {
     WEB_PORT: webPort.toString(),
     GATEWAY_PORT: gatewayPort.toString(),
     NEXT_PUBLIC_GATEWAY_URL: `http://${localIp}:${gatewayPort}`,
-    GAME_MODULE_PATH: `./${gameModuleDir}`
+    GAME_MODULE_PATH: `./games/${gameModuleDir}`
   };
 
   const newEnvContent = Object.entries(config)

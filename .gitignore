@@ -52,3 +52,6 @@ package-lock.json
 
 # Claude Code configuration
 CLAUDE.md
+
+# Game modules
+games/

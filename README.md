@@ -33,21 +33,23 @@ cd OpenDungeon
 pnpm install
 pnpm build
 
-pnpm setup           # Interactive! Pick 'game-example' or create a clean project
-pnpm configure llm   # Pick your LLM provider interactively
-pnpm start           # Launches gateway (:3001) and web UI (:3000)
+pnpm od setup        # Interactive! Pick 'game-example' or create a clean project
+pnpm od configure llm # Pick your LLM provider interactively
+pnpm od start        # Launches gateway (:3001) and web UI (:3000)
 ```
 
-Open `http://localhost:3000` to create your first campaign.
+Your selected game module will be prepared in the `games/` directory. Open `http://localhost:3000` to create your first campaign.
 
 ---
 
 ## Building a game
 
-The engine now supports **AI-native declarative skills**. You don't need to be a programmer to add new gameplay rules:
+OpenDungeon supports **AI-native declarative skills**. Game modules live in the `games/` directory (ignored by git), allowing you to evolve your game independently of the engine:
 
-1. Run `pnpm setup` and choose "Create a clean project" (e.g., `game-my-adventure`).
-2. Drop a JSON file into your new game's `skills/` folder:
+1. Run `pnpm od setup` and choose "Create a clean project" (e.g., `game-my-adventure`).
+2. Your project is created in `games/game-my-adventure/`.
+3. Drop a JSON file into your game's `skills/` folder:
+
 
 ```json
 // skills/bargain.json
@@ -82,20 +84,20 @@ For stateful cross-session logic, write a TypeScript mechanic. See [Creating a G
 
 ---
 
-## Developer tooling (`pnpm <command>`)
+## Developer tooling (`pnpm od <command>`)
 
 ```bash
-pnpm setup                                  First-time setup
-pnpm start [full|gateway|web]               Start services
-pnpm stop                                   Stop services
-pnpm status                                 Show running services and config
-pnpm logs [gateway|web] [-f]                View logs
-pnpm configure [llm|ports|module]           Change settings
-pnpm reset                                  Wipe all local state
+pnpm od setup                               First-time setup
+pnpm od start [full|gateway|web]            Start services
+pnpm od stop                                Stop services
+pnpm od status                              Show running services and config
+pnpm od logs [gateway|web] [-f]             View logs
+pnpm od configure [llm|ports|module]        Change settings
+pnpm od reset                               Wipe all local state
 
-pnpm architect --campaign <id> [--apply]    Seed world lore interactively
-pnpm architect analyze --campaign <id>      Find unhandled intents, suggest skills
-pnpm create:game-module <dir>               Scaffold a new game workspace
+pnpm od architect --campaign <id> [--apply] Seed world lore interactively
+pnpm od architect analyze --campaign <id>   Find unhandled intents, suggest skills
+pnpm od create-module <dir>                 Scaffold a new game workspace
 ```
 
 ### `pnpm architect analyze`
@@ -131,3 +133,6 @@ The command reads session logs, groups unhandled intents by pattern, and asks th
 ---
 
 Built with ❤️ by [indie indie](https://x.com/1hrOk) · [MIT License](LICENSE)
+
+
+

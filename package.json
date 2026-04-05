@@ -17,19 +17,10 @@
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "doctor": "node scripts/doctor.mjs",
-    "setup": "od setup",
-    "start": "od start",
-    "stop": "od stop",
-    "status": "od status",
-    "logs": "od logs",
-    "configure": "od configure",
-    "reset": "od reset",
-    "llm:setup": "od configure llm",
-    "architect": "od architect",
-    "create:game-module": "od create-module",
     "clean:state": "bash scripts/clean-local-state.sh",
     "dev:full": "dotenv -e .env.local -- concurrently -k \"PORT=\\$GATEWAY_PORT pnpm --filter @opendungeon/gateway dev\" \"PORT=\\$WEB_PORT pnpm --filter @opendungeon/web dev\""
   },
+
   "pnpm": {
     "onlyBuiltDependencies": [
       "@prisma/client",
