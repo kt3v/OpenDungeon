@@ -179,7 +179,7 @@ export function AuthScreen(props: AuthScreenProps) {
               value={props.language}
               onChange={(e) => props.setLanguage(e.target.value)}
               onKeyDown={handleKey}
-              placeholder="e.g. Spain, Russian, German"
+              placeholder="e.g. Spain, Belarussian, German"
               autoComplete="off"
             />
           </div>

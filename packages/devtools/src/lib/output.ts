@@ -45,6 +45,7 @@ export function printHelp(): void {
   println("  " + color("od stop", c.bold) + "  [full|gateway|web]   Stop background services");
   println("  " + color("od status", c.bold) + "                     Show what is running and where");
   println("  " + color("od logs", c.bold) + "  [gateway|web] [-f]   View service logs (use -f to follow live)");
+  println("  " + color("od realtime", c.bold) + "                   Follow gateway logs in realtime mode");
   println("  " + color("od configure", c.bold) + " [llm|ports|module]  Change settings");
   println("  " + color("od reset", c.bold) + "                      Wipe all local data and start fresh");
   println();

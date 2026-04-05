@@ -12,6 +12,7 @@ import { runStart } from "./commands/start.js";
 import { runStop } from "./commands/stop.js";
 import { runStatus } from "./commands/status.js";
 import { runLogs } from "./commands/logs.js";
+import { runRealtime } from "./commands/realtime.js";
 import { runConfigure } from "./commands/configure.js";
 import { runReset } from "./commands/reset.js";
 import { runCreateModule } from "./commands/create-module.js";
@@ -46,6 +47,10 @@ try {
 
     case "logs":
       await runLogs(restArgs);
+      break;
+
+    case "realtime":
+      await runRealtime(restArgs);
       break;
 
     case "configure":
