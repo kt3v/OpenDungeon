@@ -168,6 +168,11 @@ const createFiles = ({ absTargetDir, packageName, contentSdkDependency, dryRun }
     private: true,
     type: "module",
     main: "src/index.ts",
+    files: [
+      "dist",
+      "manifest.json",
+      "skills"
+    ],
     scripts: {
       build: "tsc -p tsconfig.json",
       typecheck: "tsc -p tsconfig.json --noEmit"
@@ -201,111 +206,74 @@ const createFiles = ({ absTargetDir, packageName, contentSdkDependency, dryRun }
     include: ["src/**/*.ts"]
   };
 
-  const contentConfig = `export const contentConfig = {
-  dungeonMasterPrompt: {
-    lines: [
-      "You are the Dungeon Master for a custom OpenDungeon module.",
-      "Tone: concise, vivid, and actionable.",
-      "Campaign Title: {{campaignTitle}}.",
-      "Output: valid JSON only with keys message, optional worldPatch, optional summaryPatch, optional suggestedActions."
-    ]
-  },
-  initialCampaignState: {
-    location: "starting_point"
-  },
-  classes: {
-    Adventurer: { level: 1, hp: 100, attributes: { agility: 10, strength: 10, intellect: 10 } }
-  },
-  fallbackClass: { level: 1, hp: 100, attributes: { agility: 10, strength: 10, intellect: 10 } },
-  actionRules: {
-    look: {
-      message: "You pause and scan your surroundings.",
-      worldPatch: { lastObservation: "unknown" }
-    }
-  },
-  suggestedActions: [
-    { id: "look", label: "Look Around", prompt: "look around" },
-    { id: "move", label: "Move Forward", prompt: "move forward carefully" },
-    { id: "listen", label: "Listen", prompt: "listen closely" }
-  ],
-  toolPolicy: {
-    allowedTools: ["update_world_state", "set_summary", "set_suggested_actions"],
-    requireSummary: true,
-    requireSuggestedActions: true
-  },
-  guardrails: {
-    maxSuggestedActions: 4,
-    maxSummaryChars: 220
-  },
-  suggestedActionStrategy: ({ state }: { state: Record<string, unknown> }) => {
-    const base = [
-      { id: "advance", label: "Advance", prompt: "advance carefully" },
-      { id: "investigate", label: "Investigate", prompt: "inspect nearby details" }
-    ];
-
-    if (typeof state.lastObservation === "string" && state.lastObservation.trim()) {
-      base.unshift({
-        id: "focus",
-        label: "Focus on " + state.lastObservation,
-        prompt: "inspect " + state.lastObservation
-      });
-    }
-
-    return base.slice(0, 4);
-  }
-} as const;
-`;
-
-  const indexTs = `import { defineGameModule, renderDungeonMasterPromptTemplate } from "@opendungeon/content-sdk";
-import { contentConfig } from "./content-config.js";
+  const indexTs = `import { defineGameModule, loadSkillsDirSync } from "@opendungeon/content-sdk";
 
 const manifest = ${JSON.stringify(manifest, null, 2)};
 
-const moduleDef = defineGameModule({
+export default defineGameModule({
   manifest,
-  getInitialCampaignState() {
-    return { ...contentConfig.initialCampaignState };
-  },
-  getCharacterTemplate({ className }) {
-    return contentConfig.classes[className as keyof typeof contentConfig.classes] ?? contentConfig.fallbackClass;
-  },
-  getSuggestedActions() {
-    return [...contentConfig.suggestedActions];
-  },
-  getDungeonMasterSystemPrompt(input) {
-    return renderDungeonMasterPromptTemplate(contentConfig.dungeonMasterPrompt, input);
-  },
-  getDungeonMasterConfig() {
-    return {
-      promptTemplate: contentConfig.dungeonMasterPrompt,
-      guardrails: contentConfig.guardrails,
-      toolPolicy: contentConfig.toolPolicy,
-      defaultSuggestedActions: contentConfig.suggestedActions,
-      suggestedActionStrategy: contentConfig.suggestedActionStrategy
-    };
-  },
-  async onPlayerAction(ctx) {
-    const action = ctx.actionText.trim().toLowerCase();
 
-    if (action.includes("look")) {
-      return {
-        message: contentConfig.actionRules.look.message,
-        worldPatch: contentConfig.actionRules.look.worldPatch
-      };
+  initial: {
+    /** Returns the world state for a brand-new campaign. */
+    worldState: () => ({
+      location: "dungeon_entrance"
+    })
+  },
+
+  characters: {
+    availableClasses: ["Adventurer"],
+    getTemplate: () => ({
+      level: 1,
+      hp: 100,
+      attributes: { strength: 10, agility: 10, intellect: 10 }
+    })
+  },
+
+  dm: {
+    /** Base prompt for the Dungeon Master. */
+    systemPrompt: "You are the Dungeon Master for a custom OpenDungeon module. Tone: dark and mysterious.",
+    /** Guardrails to keep the DM's JSON output stable. */
+    guardrails: {
+      maxSuggestedActions: 4,
+      maxSummaryChars: 240
     }
+  },
 
-    return {
-      message: "Action noted: " + ctx.actionText
-    };
-  }
+  /** TypeScript mechanics — use for complex state logic and hooks. */
+  mechanics: [],
+
+  /** 
+   * Declarative skills — drop a .json file into skills/ and it's picked up automatically.
+   * No TypeScript or recompilation needed for simple gameplay rules.
+   */
+  skills: loadSkillsDirSync(new URL("../skills", import.meta.url).pathname)
 });
-
-export default moduleDef;
 `;
+
+  const lookSkill = {
+    id: "look",
+    description: "Observe your immediate surroundings",
+    dmPromptExtension: "The player can 'look' to see their current location and nearby details.",
+    resolve: "deterministic",
+    outcome: {
+      message: "You scan your surroundings. The air is cold and damp, but you see a faint glimmer of light ahead.",
+      worldPatch: { lastObservation: "glimmer_of_light" },
+      suggestedActions: [
+        { id: "look", label: "Look again", prompt: "look around once more" },
+        { id: "advance", label: "Move toward light", prompt: "walk toward the glimmering light" }
+      ]
+    }
+  };
 
   const readme = `# ${packageName}
 
 Custom game module for OpenDungeon.
+
+## Structure
+
+- \`skills/\`: Declarative JSON skills (no TypeScript needed).
+- \`src/\`: TypeScript mechanics and module entry point.
+- \`manifest.json\`: Module metadata.
 
 ## Usage
 
@@ -313,11 +281,11 @@ Custom game module for OpenDungeon.
 
 \`npm install\`
 
-2. Set \`GAME_MODULE_PATH\` in OpenDungeon \`.env.local\`:
+2. Set \`GAME_MODULE_PATH\` in OpenDungeon \`.env\`:
 
 \`GAME_MODULE_PATH=${absTargetDir}\`
 
-3. Start OpenDungeon gateway/orchestrator normally.
+3. Start OpenDungeon normally.
 `;
 
   const files = [
@@ -326,8 +294,8 @@ Custom game module for OpenDungeon.
     { path: resolve(absTargetDir, "tsconfig.json"), content: JSON.stringify(tsconfig, null, 2) + "\n" },
     { path: resolve(absTargetDir, ".gitignore"), content: "node_modules\ndist\n" },
     { path: resolve(absTargetDir, "README.md"), content: readme },
-    { path: resolve(absTargetDir, "src/content-config.ts"), content: contentConfig },
-    { path: resolve(absTargetDir, "src/index.ts"), content: indexTs }
+    { path: resolve(absTargetDir, "src/index.ts"), content: indexTs },
+    { path: resolve(absTargetDir, "skills/look.json"), content: JSON.stringify(lookSkill, null, 2) + "\n" }
   ];
 
   if (dryRun) {
@@ -339,6 +307,7 @@ Custom game module for OpenDungeon.
   }
 
   mkdirSync(resolve(absTargetDir, "src"), { recursive: true });
+  mkdirSync(resolve(absTargetDir, "skills"), { recursive: true });
   for (const file of files) {
     writeFileSync(file.path, file.content, "utf8");
   }

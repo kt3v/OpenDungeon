@@ -31,10 +31,11 @@ The AI Dungeon Master receives the player's action, sees the list of available m
 git clone https://github.com/kt3v/OpenDungeon.git
 cd OpenDungeon
 pnpm install
+pnpm build
 
-od setup        # creates .env.local, starts Postgres, runs migrations
-od configure llm  # pick your LLM provider interactively
-od start        # gateway :3001, web UI :3000
+pnpm od setup        # creates .env.local, starts Postgres, runs migrations
+pnpm od configure llm  # pick your LLM provider interactively
+pnpm od start        # gateway :3001, web UI :3000
 ```
 
 Open `http://localhost:3000` to create your first campaign.
@@ -46,7 +47,7 @@ Open `http://localhost:3000` to create your first campaign.
 The fastest way to add gameplay is with a JSON skill file — no TypeScript, no compilation:
 
 ```bash
-od create-module ../my-game
+pnpm od create-module ../my-game
 cd ../my-game
 ```
 
@@ -134,4 +135,4 @@ The command reads session logs, groups unhandled intents by pattern, and asks th
 
 ---
 
-Built with ❤️ by [indie indie](https://github.com/kt3v) · [MIT License](LICENSE)
+Built with ❤️ by [indie indie](https://x.com/1hrOk) · [MIT License](LICENSE)
