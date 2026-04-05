@@ -3,10 +3,12 @@ import { createInterface } from "node:readline/promises";
 import { join } from "node:path";
 import { findProjectRoot } from "../lib/project-root.js";
 import { println, printError, color, c, sym } from "../lib/output.js";
+import { runStop } from "./stop.js";
 
 export async function runReset(_args: string[]): Promise<void> {
   println();
   println(color(`${sym.warn}  WARNING: This will delete:`, c.yellow, c.bold));
+  println(color("    • Running services (gateway, web)", c.yellow));
   println(color("    • Database volumes (all game data will be lost)", c.yellow));
   println(color("    • node_modules/", c.yellow));
   println(color("    • .env.local (all your settings)", c.yellow));
@@ -29,6 +31,9 @@ export async function runReset(_args: string[]): Promise<void> {
     println();
     return;
   }
+
+  // Ensure services are stopped before cleaning up files
+  await runStop(["full"]);
 
   println();
   const root = findProjectRoot();
