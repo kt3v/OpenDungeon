@@ -29,5 +29,5 @@ export const serverConfig = {
    * How often to log LLM metrics (queue depth, latency, circuit breaker state).
    * Set to 0 to disable periodic logging.
    */
-  llmMetricsLogIntervalMs: 60000, // 1 minute
+  llmMetricsLogIntervalMs: 30000, // 30 seconds
 } as const;

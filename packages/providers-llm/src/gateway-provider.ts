@@ -43,24 +43,17 @@ export interface FallbackConfig {
 }
 
 export interface LLMMetrics {
-  /** Total requests made */
   totalRequests: number;
-  /** Successful responses */
   successfulRequests: number;
-  /** Failed responses (after all retries) */
   failedRequests: number;
-  /** Requests that used fallback provider */
   fallbackRequests: number;
-  /** Requests blocked by rate limiter */
   rateLimitedRequests: number;
-  /** Current queue depth */
   queueDepth: number;
-  /** Average latency in ms */
   averageLatencyMs: number;
-  /** Circuit breaker state */
   circuitState: CircuitState;
-  /** Current concurrency level */
   currentConcurrency: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
 }
 
 type CircuitState = "closed" | "open" | "half-open";
@@ -221,6 +214,8 @@ class MetricsCollector {
   private fallbackRequests = 0;
   private rateLimitedRequests = 0;
   private totalLatencyMs = 0;
+  private totalInputTokens = 0;
+  private totalOutputTokens = 0;
 
   recordRequest(): void {
     this.totalRequests++;
@@ -243,6 +238,11 @@ class MetricsCollector {
     this.rateLimitedRequests++;
   }
 
+  recordTokens(inputTokens: number, outputTokens: number): void {
+    this.totalInputTokens += inputTokens;
+    this.totalOutputTokens += outputTokens;
+  }
+
   getMetrics(currentConcurrency: number, queueDepth: number, circuitState: CircuitState): LLMMetrics {
     const avgLatency = this.successfulRequests > 0
       ? this.totalLatencyMs / this.successfulRequests
@@ -257,7 +257,9 @@ class MetricsCollector {
       queueDepth,
       averageLatencyMs: Math.round(avgLatency),
       circuitState,
-      currentConcurrency
+      currentConcurrency,
+      totalInputTokens: this.totalInputTokens,
+      totalOutputTokens: this.totalOutputTokens
     };
   }
 }
@@ -415,10 +417,26 @@ export class GatewayLLMProvider implements LlmProvider {
     try {
       const response = await this.primaryProvider.createResponse(request);
       this.circuitBreaker.recordSuccess();
+      this.recordTokenUsage(response);
       return response;
     } catch (error) {
       this.circuitBreaker.recordFailure();
       throw error;
+    }
+  }
+
+  private recordTokenUsage(response: ChatResponse): void {
+    const raw = response.raw as Record<string, unknown> | undefined;
+    if (!raw) return;
+
+    const usage = raw.usage as Record<string, unknown> | undefined;
+    if (!usage) return;
+
+    const inputTokens = (usage.prompt_tokens as number) ?? 0;
+    const outputTokens = (usage.completion_tokens as number) ?? 0;
+
+    if (inputTokens > 0 || outputTokens > 0) {
+      this.metrics.recordTokens(inputTokens, outputTokens);
     }
   }
 
@@ -428,7 +446,9 @@ export class GatewayLLMProvider implements LlmProvider {
     }
 
     this.metrics.recordFallback();
-    return await this.resolvedConfig.fallback.provider.createResponse(request);
+    const response = await this.resolvedConfig.fallback.provider.createResponse(request);
+    this.recordTokenUsage(response);
+    return response;
   }
 
   private shouldUseFallback(category: LlmProviderErrorCategory): boolean {
