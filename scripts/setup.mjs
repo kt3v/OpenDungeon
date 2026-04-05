@@ -168,7 +168,7 @@ const main = async () => {
   if (!existsSync(gameModulePath)) {
     if (moduleChoice.type === "example") {
       process.stdout.write(`\nCopying example module to ./games/${gameModuleDir}...\n`);
-      cpSync(resolve(rootDir, "game-example"), gameModulePath, { recursive: true });
+      cpSync(resolve(rootDir, "packages", "game-example"), gameModulePath, { recursive: true });
     } else {
       process.stdout.write(`\nGenerating new module in ./games/${gameModuleDir}...\n`);
       run("node", [resolve(rootDir, "scripts", "create-game-module.mjs"), `games/${gameModuleDir}`, "--name", `@opendungeon/${moduleChoice.name}`]);

@@ -259,7 +259,7 @@ This reads session logs, groups unhandled player intents by pattern, and generat
 
 ## Reference
 
-`game-example` in the project root is the reference implementation. It shows:
+`game-example` in `packages/` is the reference implementation. It shows:
 - A complete `defineGameModule` with skills + mechanics
 - The extraction mechanic (cross-session loot persistence)
 - The location mechanic (per-player position in a shared world)
