@@ -1,12 +1,39 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, cpSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import os from "node:os";
 import net from "node:net";
+import readline from "node:readline/promises";
 
 const rootDir = process.cwd();
 const envExamplePath = resolve(rootDir, ".env.example");
 const envLocalPath = resolve(rootDir, ".env.local");
+
+const askModuleType = async () => {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    process.stdout.write("\n" + "-".repeat(40) + "\n");
+    process.stdout.write("Welcome to OpenDungeon! Let's choose your starting point.\n\n");
+    process.stdout.write("1) Start with 'game-example' (A pre-built module with logic and AI skills)\n");
+    process.stdout.write("2) Create a clean project (A fresh start for your own ideas)\n\n");
+
+    let choice = "";
+    while (!["1", "2"].includes(choice)) {
+      choice = (await rl.question("Your choice [1/2]: ")).trim();
+    }
+
+    if (choice === "1") {
+      const name = (await rl.question("\nEnter your game folder name [default: game-my-adventure]: ")).trim() || "game-my-adventure";
+      return { type: "example", name };
+    } else {
+      const name = (await rl.question("\nEnter your game folder name [e.g. game-legend-of-shadows]: ")).trim();
+      const finalName = name || "game-new-adventure";
+      return { type: "new", name: finalName };
+    }
+  } finally {
+    rl.close();
+  }
+};
 
 const getLocalIp = () => {
   const interfaces = os.networkInterfaces();
@@ -129,6 +156,23 @@ const main = async () => {
   const currentEnv = parseEnvFile(envLocalPath);
   const exampleEnv = parseEnvFile(envExamplePath);
 
+  // ASK FOR GAME MODULE CHOICE
+  const moduleChoice = await askModuleType();
+  const gameModuleDir = moduleChoice.name.startsWith("game-") ? moduleChoice.name : `game-${moduleChoice.name}`;
+  const gameModulePath = resolve(rootDir, gameModuleDir);
+
+  if (!existsSync(gameModulePath)) {
+    if (moduleChoice.type === "example") {
+      process.stdout.write(`\nCopying example module to ./${gameModuleDir}...\n`);
+      cpSync(resolve(rootDir, "game-example"), gameModulePath, { recursive: true });
+    } else {
+      process.stdout.write(`\nGenerating new module in ./${gameModuleDir}...\n`);
+      run("node", [resolve(rootDir, "scripts", "create-game-module.mjs"), gameModuleDir, "--name", `@opendungeon/${moduleChoice.name}`]);
+    }
+  } else {
+    process.stdout.write(`\nFolder ./${gameModuleDir} already exists. Using it.\n`);
+  }
+
   // Determine ideal ports
   const webPort = await findAvailablePort(Number(currentEnv.WEB_PORT || exampleEnv.WEB_PORT || 3000));
   const gatewayPort = await findAvailablePort(Number(currentEnv.GATEWAY_PORT || exampleEnv.GATEWAY_PORT || 3001), [webPort]);
@@ -141,7 +185,7 @@ const main = async () => {
     WEB_PORT: webPort.toString(),
     GATEWAY_PORT: gatewayPort.toString(),
     NEXT_PUBLIC_GATEWAY_URL: `http://${localIp}:${gatewayPort}`,
-    GAME_MODULE_PATH: currentEnv.GAME_MODULE_PATH || exampleEnv.GAME_MODULE_PATH
+    GAME_MODULE_PATH: `./${gameModuleDir}`
   };
 
   const newEnvContent = Object.entries(config)
@@ -160,7 +204,10 @@ const main = async () => {
   run("pnpm", ["run", "db:generate"], { env: mergedEnv });
   run("pnpm", ["run", "db:push"], { env: mergedEnv });
 
-  process.stdout.write("\nSetup completed. Next: pnpm run dev:full\n");
+  process.stdout.write("\n" + "-".repeat(40) + "\n");
+  process.stdout.write(`SUCCESS! Your game is ready in: ./${gameModuleDir}\n`);
+  process.stdout.write("Next: od start\n");
+  process.stdout.write("-".repeat(40) + "\n\n");
 };
 
 await main();
