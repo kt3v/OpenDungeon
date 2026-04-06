@@ -1,3 +1,4 @@
+import { approximateTokens, stripCodeFence } from "@opendungeon/shared";
 import type { LlmProvider } from "@opendungeon/providers-llm";
 
 export interface RouterContextModule {
@@ -192,9 +193,6 @@ const applyTokenBudget = (
 const sortByPriorityDesc = (a: RouterContextModule, b: RouterContextModule): number =>
   (b.priority ?? 0) - (a.priority ?? 0);
 
-const approximateTokens = (value: string): number =>
-  Math.ceil(Buffer.byteLength(value, "utf8") / 4);
-
 const parseSelectedModuleIds = (raw: string): string[] => {
   const normalized = stripCodeFence(raw).trim();
 
@@ -210,14 +208,6 @@ const parseSelectedModuleIds = (raw: string): string[] => {
   } catch {
     return [];
   }
-};
-
-const stripCodeFence = (value: string): string => {
-  if (value.startsWith("```") && value.endsWith("```")) {
-    const lines = value.split("\n");
-    return lines.slice(1, -1).join("\n");
-  }
-  return value;
 };
 
 const buildWorldStatePreview = (worldState: Record<string, unknown>): Record<string, unknown> => {

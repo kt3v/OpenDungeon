@@ -1,3 +1,4 @@
+import { stripCodeFence } from "@opendungeon/shared";
 import type { LlmProvider } from "@opendungeon/providers-llm";
 
 export interface LoreEntryPayload {
@@ -44,13 +45,7 @@ export async function extractLore(
       responseFormat: { type: "json_object" },
     });
 
-    let text = response.text.trim();
-    if (text.startsWith("\`\`\`json")) {
-      text = text.replace(/^\`\`\`json\n?/, "").replace(/\n?\`\`\`$/, "");
-    } else if (text.startsWith("\`\`\`")) {
-      text = text.replace(/^\`\`\`\n?/, "").replace(/\n?\`\`\`$/, "");
-    }
-
+    const text = stripCodeFence(response.text).trim();
     const parsed = JSON.parse(text) as { entities?: LoreEntryPayload[] };
     return parsed.entities ?? [];
   } catch (error) {

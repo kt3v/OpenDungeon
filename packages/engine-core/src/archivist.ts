@@ -3,6 +3,7 @@ import {
   sanitizeDungeonMasterSummaryPatch,
   sanitizeDungeonMasterWorldPatch
 } from "@opendungeon/content-sdk";
+import { stripCodeFence } from "@opendungeon/shared";
 import { type LlmProvider } from "@opendungeon/providers-llm";
 
 export interface ArchivistTurnInput {
@@ -75,11 +76,3 @@ const parseArchivistResult = (raw: string): ArchivistTurnResult => {
   }
 };
 
-const stripCodeFence = (value: string): string => {
-  if (value.startsWith("```") && value.endsWith("```")) {
-    const lines = value.split("\n");
-    return lines.slice(1, -1).join("\n");
-  }
-
-  return value;
-};

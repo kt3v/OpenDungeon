@@ -10,6 +10,7 @@ import {
   type DungeonMasterToolPolicy,
   type SuggestedAction
 } from "@opendungeon/content-sdk";
+import { isRecord, stripCodeFence } from "@opendungeon/shared";
 import { createProviderFromEnv, type ChatMessage, type LlmProvider } from "@opendungeon/providers-llm";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -220,9 +221,6 @@ export class DungeonMasterRuntime {
   }
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value) && typeof value === "object" && !Array.isArray(value);
-
 const JSON_REPAIR_PROMPT = [
   "Your previous response was invalid for the required JSON contract.",
   "Return valid JSON only.",
@@ -366,14 +364,6 @@ const applyToolCalls = (
       defaultActions: options.defaultSuggestedActions
     });
   }
-};
-
-const stripCodeFence = (value: string): string => {
-  if (value.startsWith("```") && value.endsWith("```")) {
-    const lines = value.split("\n");
-    return lines.slice(1, -1).join("\n");
-  }
-  return value;
 };
 
 const resolveSystemPrompt = (input: {

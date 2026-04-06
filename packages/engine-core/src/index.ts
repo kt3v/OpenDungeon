@@ -14,7 +14,7 @@ import type {
 } from "@opendungeon/content-sdk";
 import { renderDungeonMasterPromptTemplate, renderGameModuleSetting } from "@opendungeon/content-sdk";
 import type { SessionEndReason } from "@opendungeon/shared";
-import { moduleManifestSchema } from "@opendungeon/shared";
+import { dmConfigFileSchema, moduleManifestSchema } from "@opendungeon/shared";
 import { createProviderFromEnv, type LlmProvider } from "@opendungeon/providers-llm";
 import { DungeonMasterRuntime } from "./dungeon-master.js";
 import { ContextRouterRuntime, type RouterConfig, type RouterContextModule } from "./context-router.js";
@@ -482,53 +482,11 @@ export class EngineRuntime {
   }
 
   private getContextRouterConfig(): RouterConfig | undefined {
-    const dmRecord = this.gameModule.dm as Record<string, unknown>;
-    const value = dmRecord.contextRouter;
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return undefined;
-    }
-
-    const cfg = value as Record<string, unknown>;
-    const out: RouterConfig = {};
-
-    if (typeof cfg.enabled === "boolean") out.enabled = cfg.enabled;
-    if (typeof cfg.contextTokenBudget === "number") out.contextTokenBudget = cfg.contextTokenBudget;
-    if (typeof cfg.maxCandidates === "number") out.maxCandidates = cfg.maxCandidates;
-    if (typeof cfg.maxSelectedModules === "number") out.maxSelectedModules = cfg.maxSelectedModules;
-
-    return out;
+    return this.gameModule.dm.contextRouter;
   }
 
   private getConfiguredContextModules(): RouterContextModule[] {
-    const dmRecord = this.gameModule.dm as Record<string, unknown>;
-    const value = dmRecord.contextModules;
-    if (!Array.isArray(value)) return [];
-
-    return value
-      .map((item): RouterContextModule | null => {
-        if (!item || typeof item !== "object" || Array.isArray(item)) return null;
-        const obj = item as Record<string, unknown>;
-        if (typeof obj.id !== "string" || !obj.id.trim()) return null;
-        if (typeof obj.content !== "string" || !obj.content.trim()) return null;
-
-        const module: RouterContextModule = {
-          id: obj.id.trim(),
-          content: obj.content
-        };
-
-        if (typeof obj.priority === "number") module.priority = obj.priority;
-        if (typeof obj.alwaysInclude === "boolean") module.alwaysInclude = obj.alwaysInclude;
-        if (Array.isArray(obj.triggers)) {
-          module.triggers = obj.triggers
-            .filter((trigger): trigger is string => typeof trigger === "string")
-            .map((trigger) => trigger.trim())
-            .filter(Boolean);
-        }
-        if (typeof obj.file === "string") module.file = obj.file;
-
-        return module;
-      })
-      .filter((module): module is RouterContextModule => Boolean(module));
+    return (this.gameModule.dm.contextModules ?? []) as RouterContextModule[];
   }
 
   private async runSessionHooks(

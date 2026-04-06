@@ -1,3 +1,4 @@
+import { stripCodeFence } from "@opendungeon/shared";
 import { createArchitectProviderFromEnv, type ChatMessage, type LlmProvider } from "@opendungeon/providers-llm";
 import type { ArchitectOperation, LoreEntityType, MilestoneType } from "./operations.js";
 import { CHRONICLER_SYSTEM_PROMPT } from "./prompts/chronicler.js";
@@ -254,14 +255,6 @@ const parseJsonObject = (raw: string): Record<string, unknown> => {
     throw new Error("Response must be a JSON object");
   }
   return value as Record<string, unknown>;
-};
-
-const stripCodeFence = (value: string): string => {
-  if (value.startsWith("```") && value.endsWith("```")) {
-    const lines = value.split("\n");
-    return lines.slice(1, -1).join("\n");
-  }
-  return value;
 };
 
 const VALID_LORE_TYPES = new Set(["NPC", "Location", "Item", "Faction", "Lore"]);

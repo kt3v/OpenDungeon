@@ -1,3 +1,4 @@
+import { stripCodeFence } from "@opendungeon/shared";
 import type { SkillSchema } from "@opendungeon/content-sdk";
 import { createProviderFromEnv, type LlmProvider, type ChatMessage } from "@opendungeon/providers-llm";
 
@@ -107,7 +108,7 @@ export class SkillSuggestionRuntime {
 // ---------------------------------------------------------------------------
 
 const parseResponse = (raw: string): SkillSuggestion[] => {
-  const text = raw.startsWith("```") ? raw.split("\n").slice(1, -1).join("\n") : raw;
+  const text = stripCodeFence(raw);
   const value = JSON.parse(text.trim());
 
   if (!value || typeof value !== "object" || !Array.isArray(value.suggestions)) {

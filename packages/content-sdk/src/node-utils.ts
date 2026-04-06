@@ -16,6 +16,7 @@ import {
   classesFileSchema,
   dmConfigFileSchema,
   initialStateFileSchema,
+  resourceSchema,
   type CharacterClassEntry
 } from "@opendungeon/shared";
 
@@ -206,20 +207,6 @@ export const loadContextModulesDirSync = (dirPath: string): DungeonMasterContext
  * });
  * ```
  */
-const VALID_RESOURCE_SOURCES = new Set(["characterState", "worldState"]);
-const VALID_RESOURCE_TYPES = new Set(["number", "text", "list", "boolean"]);
-
-const isResourceSchema = (value: unknown): value is ResourceSchema => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const obj = value as Record<string, unknown>;
-  return (
-    typeof obj.id === "string" && obj.id.trim().length > 0 &&
-    typeof obj.label === "string" && obj.label.trim().length > 0 &&
-    typeof obj.source === "string" && VALID_RESOURCE_SOURCES.has(obj.source) &&
-    typeof obj.stateKey === "string" && obj.stateKey.trim().length > 0 &&
-    typeof obj.type === "string" && VALID_RESOURCE_TYPES.has(obj.type)
-  );
-};
 
 /**
  * Synchronously load all `*.json` resource files from a directory.
@@ -265,14 +252,12 @@ export const loadResourcesDirSync = (dirPath: string): ResourceSchema[] => {
     const items = Array.isArray(raw) ? raw : [raw];
 
     for (const item of items) {
-      if (isResourceSchema(item)) {
-        results.push(item);
+      const parsed = resourceSchema.safeParse(item);
+      if (parsed.success) {
+        results.push(parsed.data as ResourceSchema);
       } else {
         console.warn(
-          `[content-sdk] Skipping invalid resource in "${file}" — ` +
-            `must have string "id", "label", "stateKey", ` +
-            `source: "character"|"characterState"|"worldState", ` +
-            `and type: "number"|"text"|"list"|"boolean".`
+          `[content-sdk] Skipping invalid resource in "${file}": ${parsed.error.message}`
         );
       }
     }
@@ -413,8 +398,8 @@ export const loadDmConfigFileSync = (filePath: string): DungeonMasterModuleConfi
     config.defaultSuggestedActions = jsonConfig.defaultSuggestedActions;
   }
   const jsonConfigRecord = jsonConfig as Record<string, unknown> | null;
-  if (jsonConfigRecord && typeof jsonConfigRecord.contextRouter === "object" && jsonConfigRecord.contextRouter) {
-    config.contextRouter = jsonConfigRecord.contextRouter as DungeonMasterModuleConfig["contextRouter"];
+  if (jsonConfig?.contextRouter) {
+    config.contextRouter = jsonConfig.contextRouter;
   }
   if (contextModules.length > 0) {
     config.contextModules = contextModules;

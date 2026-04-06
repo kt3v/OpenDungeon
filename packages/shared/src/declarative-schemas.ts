@@ -275,3 +275,19 @@ export const ruleSchema = z.object({
 export type RuleSchema = z.infer<typeof ruleSchema>;
 export type RuleEffect = z.infer<typeof ruleEffectSchema>;
 export type RuleCondition = z.infer<typeof ruleConditionSchema>;
+
+// ---------------------------------------------------------------------------
+// Resource Schema (resources/*.json)
+// ---------------------------------------------------------------------------
+
+export const resourceSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  source: z.enum(["characterState", "worldState"]),
+  stateKey: z.string().min(1),
+  type: z.enum(["number", "text", "list", "boolean"]),
+  defaultValue: z.any().optional(),
+  display: z.enum(["compact", "badge"]).optional()
+});
+
+export type ResourceSchemaEntry = z.infer<typeof resourceSchema>;
