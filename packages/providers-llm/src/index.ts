@@ -319,7 +319,7 @@ export class AnthropicCompatibleProvider implements LlmProvider {
     const body: Record<string, unknown> = {
       model: this.model,
       messages,
-      max_tokens: request.maxTokens ?? 1024
+      max_tokens: request.maxTokens ?? 4096
     };
 
     if (system) {

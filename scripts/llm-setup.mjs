@@ -302,6 +302,9 @@ const printSummary = (values, title = "LLM settings") => {
   output.write(`  LLM_PROVIDER=${values.LLM_PROVIDER}\n`);
   output.write(`  LLM_BASE_URL=${values.LLM_BASE_URL}\n`);
   output.write(`  LLM_MODEL=${values.LLM_MODEL}\n`);
+  if (values.LLM_ARCHITECT_MODEL) {
+    output.write(`  LLM_ARCHITECT_MODEL=${values.LLM_ARCHITECT_MODEL}\n`);
+  }
   if (values.LLM_ENDPOINT_PATH) {
     output.write(`  LLM_ENDPOINT_PATH=${values.LLM_ENDPOINT_PATH}\n`);
   }
@@ -657,6 +660,44 @@ const run = async () => {
         applyConfig(envState, values);
         writeFileSync(ENV_LOCAL_PATH, stringifyEnv(envState), "utf8");
         printSummary(values, "Main Provider");
+
+        // --- Architect Model Setup ---
+        output.write("\n--- Architect Model Setup ---\n");
+        output.write("The Architect (od architect) uses the same provider and API key as the DM,\n");
+        output.write("but can use a different model — typically a smarter one for content generation.\n\n");
+        output.write(`  DM model       : ${values.LLM_MODEL}\n`);
+        output.write("  Architect model: (same as DM by default)\n\n");
+        output.write("1) Same as DM — simpler, no extra cost\n");
+        output.write("2) Different model — use a larger/smarter model for the Architect\n\n");
+
+        let architectChoice;
+        while (!architectChoice) {
+          const answer = (await rl.question("Choose (1-2) [1]: ")).trim();
+          if (!answer || answer === "1") {
+            architectChoice = "same";
+          } else if (answer === "2") {
+            architectChoice = "different";
+          }
+        }
+
+        if (architectChoice === "different") {
+          const architectModel = await ensureNonEmpty(
+            rl,
+            `Architect model id (same provider, e.g. a larger version of ${values.LLM_MODEL}): `
+          );
+          envState.map.set("LLM_ARCHITECT_MODEL", architectModel);
+          writeFileSync(ENV_LOCAL_PATH, stringifyEnv(envState), "utf8");
+          output.write(`\n  LLM_ARCHITECT_MODEL=${architectModel}\n`);
+        } else {
+          // Clear any previously set architect model so it inherits from LLM_MODEL
+          envState.map.delete("LLM_ARCHITECT_MODEL");
+          const inOrder = envState.order.some(e => e.type === "key" && e.key === "LLM_ARCHITECT_MODEL");
+          if (inOrder) {
+            envState.order = envState.order.filter(e => !(e.type === "key" && e.key === "LLM_ARCHITECT_MODEL"));
+            writeFileSync(ENV_LOCAL_PATH, stringifyEnv(envState), "utf8");
+          }
+          output.write(`\n  Architect will use the same model as DM: ${values.LLM_MODEL}\n`);
+        }
       }
     }
 

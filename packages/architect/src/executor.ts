@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join, resolve, normalize } from "node:path";
 import type { PrismaClient } from "@prisma/client";
 import type { ArchitectOperation, LoreSource } from "./operations.js";
 
@@ -13,7 +15,11 @@ export interface ExecutionReport {
  * ensuring world state and lore are written with identical conventions.
  */
 export class ArchitectOperationExecutor {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    /** Absolute path to the game module root — required for write_file operations */
+    private readonly modulePath?: string
+  ) {}
 
   async execute(ops: ArchitectOperation[], campaignId: string): Promise<ExecutionReport> {
     const report: ExecutionReport = { applied: 0, skipped: 0, errors: [] };
@@ -96,6 +102,22 @@ export class ArchitectOperationExecutor {
             milestoneType: op.milestoneType
           }
         });
+        break;
+      }
+
+      case "write_file": {
+        if (!this.modulePath) {
+          throw new Error("write_file requires a module path — pass --module <path> to the CLI");
+        }
+        const absModulePath = resolve(this.modulePath);
+        const absFilePath = resolve(absModulePath, op.path);
+        // Safety: ensure the resolved path stays within the module root
+        const normalized = normalize(absFilePath);
+        if (!normalized.startsWith(absModulePath + "/") && normalized !== absModulePath) {
+          throw new Error(`write_file path escapes module root: ${op.path}`);
+        }
+        await mkdir(dirname(absFilePath), { recursive: true });
+        await writeFile(absFilePath, op.content, "utf8");
         break;
       }
 

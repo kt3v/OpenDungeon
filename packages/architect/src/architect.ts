@@ -1,4 +1,4 @@
-import { createProviderFromEnv, type ChatMessage, type LlmProvider } from "@opendungeon/providers-llm";
+import { createArchitectProviderFromEnv, type ChatMessage, type LlmProvider } from "@opendungeon/providers-llm";
 import type { ArchitectOperation, LoreEntityType, MilestoneType } from "./operations.js";
 import { CHRONICLER_SYSTEM_PROMPT } from "./prompts/chronicler.js";
 import { WORLDBUILDER_SYSTEM_PROMPT } from "./prompts/worldbuilder.js";
@@ -46,6 +46,10 @@ export interface WorldbuilderModuleContext {
   availableClasses: string[];
   existingWorldState: Record<string, unknown>;
   existingLore: ChroniclerLoreEntry[];
+  /** Absolute path to the game module root directory (undefined = no module loaded) */
+  modulePath?: string;
+  /** Relative paths of existing game module files — skills/*.json, hooks/*.json, rules/*.json, lore/*.md */
+  existingFiles?: string[];
 }
 
 export interface WorldbuilderTurnInput {
@@ -58,6 +62,8 @@ export interface WorldbuilderTurnResult {
   assistantMessage: string;
   pendingOperations: ArchitectOperation[];
   requiresConfirmation: boolean;
+  /** Operations the LLM produced but that failed validation — for debug display */
+  droppedOperationCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,17 +75,25 @@ export interface ArchitectRuntimeOptions {
   /** Default temperature applied to both modes. Defaults to 0.1. */
   temperature?: number;
   maxJsonRepairAttempts?: number;
+  /**
+   * Maximum output tokens for LLM responses.
+   * The Architect generates multiple complete JSON files per response, so this
+   * must be high enough to avoid truncation. Defaults to 8192.
+   */
+  maxOutputTokens?: number;
 }
 
 export class ArchitectRuntime {
   private readonly provider: LlmProvider;
   private readonly temperature: number;
   private readonly maxJsonRepairAttempts: number;
+  private readonly maxOutputTokens: number;
 
   constructor(options: ArchitectRuntimeOptions = {}) {
-    this.provider = options.provider ?? createProviderFromEnv();
+    this.provider = options.provider ?? createArchitectProviderFromEnv();
     this.temperature = options.temperature ?? 0.1;
     this.maxJsonRepairAttempts = options.maxJsonRepairAttempts ?? 2;
+    this.maxOutputTokens = options.maxOutputTokens ?? 8192;
   }
 
   // ---------------------------------------------------------------------------
@@ -127,17 +141,31 @@ export class ArchitectRuntime {
   // ---------------------------------------------------------------------------
 
   async runWorldbuilderTurn(input: WorldbuilderTurnInput): Promise<WorldbuilderTurnResult> {
+    const ctx = input.moduleContext;
+    const moduleSection = ctx.modulePath
+      ? `Module root: ${ctx.modulePath}`
+      : "Module root: (none — advisory mode, file operations unavailable)";
+
+    const filesSection =
+      ctx.existingFiles && ctx.existingFiles.length > 0
+        ? `Existing module files:\n${ctx.existingFiles.map((f) => `  - ${f}`).join("\n")}`
+        : "Existing module files: (none detected)";
+
     const systemWithContext = `${WORLDBUILDER_SYSTEM_PROMPT}
 
 ## Current Module Context
 
-Available character classes: ${JSON.stringify(input.moduleContext.availableClasses)}
+${moduleSection}
 
-Existing world state (${Object.keys(input.moduleContext.existingWorldState).length} facts):
-${JSON.stringify(input.moduleContext.existingWorldState, null, 2)}
+Available character classes: ${JSON.stringify(ctx.availableClasses)}
 
-Existing lore entries (${input.moduleContext.existingLore.length} entities):
-${JSON.stringify(input.moduleContext.existingLore, null, 2)}`;
+${filesSection}
+
+Existing world state (${Object.keys(ctx.existingWorldState).length} facts):
+${JSON.stringify(ctx.existingWorldState, null, 2)}
+
+Existing lore entries (${ctx.existingLore.length} entities):
+${JSON.stringify(ctx.existingLore, null, 2)}`;
 
     const messages: ChatMessage[] = [
       { role: "system", content: systemWithContext },
@@ -159,16 +187,21 @@ ${JSON.stringify(input.moduleContext.existingLore, null, 2)}`;
 
     const rawOps = Array.isArray(obj.pendingOperations) ? (obj.pendingOperations as unknown[]) : [];
     const pendingOperations: ArchitectOperation[] = [];
+    let droppedOperationCount = 0;
 
     for (const item of rawOps) {
       const op = validateArchitectOperation(item, undefined);
-      if (op) pendingOperations.push(op);
+      if (op) {
+        pendingOperations.push(op);
+      } else {
+        droppedOperationCount++;
+      }
     }
 
     const requiresConfirmation =
       typeof obj.requiresConfirmation === "boolean" ? obj.requiresConfirmation : pendingOperations.length > 0;
 
-    return { assistantMessage, pendingOperations, requiresConfirmation };
+    return { assistantMessage, pendingOperations, requiresConfirmation, droppedOperationCount };
   }
 
   // ---------------------------------------------------------------------------
@@ -183,6 +216,7 @@ ${JSON.stringify(input.moduleContext.existingLore, null, 2)}`;
       const response = await this.provider.createResponse({
         messages: localMessages,
         temperature: this.temperature,
+        maxTokens: this.maxOutputTokens,
         responseFormat: { type: "json_object" }
       });
 
@@ -290,6 +324,30 @@ const validateArchitectOperation = (item: unknown, sessionId: string | undefined
         op: "resolve_lore_conflict",
         entityName: obj.entityName.trim(),
         canonicalDescription: obj.canonicalDescription.trim()
+      };
+    }
+
+    case "write_file": {
+      if (typeof obj.path !== "string" || !obj.path.trim()) return null;
+      if (typeof obj.description !== "string") return null;
+      // Basic safety: reject paths that try to escape the module root
+      const p = obj.path.trim();
+      if (p.startsWith("/") || p.includes("..")) return null;
+      // LLMs sometimes return content as a parsed object instead of a JSON string.
+      // Accept both: stringify objects, pass strings through as-is.
+      let content: string;
+      if (typeof obj.content === "string") {
+        content = obj.content;
+      } else if (obj.content !== null && typeof obj.content === "object") {
+        content = JSON.stringify(obj.content, null, 2);
+      } else {
+        return null;
+      }
+      return {
+        op: "write_file",
+        path: p,
+        content,
+        description: obj.description.trim()
       };
     }
 

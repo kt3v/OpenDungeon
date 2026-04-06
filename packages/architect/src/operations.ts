@@ -38,4 +38,13 @@ export type ArchitectOperation =
       op: "resolve_lore_conflict";
       entityName: string;
       canonicalDescription: string;
+    }
+  | {
+      op: "write_file";
+      /** Path relative to game module root — e.g. "skills/bargain.json", "dm.md", "lore/factions.md" */
+      path: string;
+      /** Full file contents to write */
+      content: string;
+      /** Human-readable description shown to the developer before confirmation */
+      description: string;
     };
