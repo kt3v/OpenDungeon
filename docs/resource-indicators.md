@@ -2,7 +2,7 @@
 
 Resource indicators are UI tiles displayed in the game client during an active session. They show character or world data — HP, gold, inventory, location — dynamically bound to the current state.
 
-Like skills, resources are declared in JSON files. Drop a file into your game's `resources/` directory, wire it up in your `index.ts`, and the client renders it automatically.
+Resources are declared in JSON files. Drop a file into your game's `resources/` directory — it's picked up automatically for both declarative and TypeScript modules.
 
 ```
 my-game/
@@ -22,22 +22,13 @@ my-game/
 {
   "id": "hp",
   "label": "HP",
-  "source": "character",
+  "source": "characterState",
   "stateKey": "hp",
   "type": "number"
 }
 ```
 
-**`src/index.ts`**
-```typescript
-import { defineGameModule, loadSkillsDirSync, loadResourcesDirSync } from "@opendungeon/content-sdk";
-
-export default defineGameModule({
-  // ...
-  skills:    loadSkillsDirSync(new URL("../skills", import.meta.url).pathname),
-  resources: loadResourcesDirSync(new URL("../resources", import.meta.url).pathname)
-});
-```
+For declarative modules, resources are loaded automatically. For TypeScript modules using `defineMechanics()`, resources also come from the declarative module base — no explicit loader needed.
 
 The engine passes the schema to the client via the session state API. On every poll, the client resolves each resource's value from the live state and re-renders the indicator strip.
 
@@ -49,7 +40,7 @@ The engine passes the schema to the client via the session state API. On every p
 interface ResourceSchema {
   id:           string;   // unique key, used as React key
   label:        string;   // text shown in the indicator tile: "HP", "Gold"
-  source:       "character" | "characterState" | "worldState";
+  source:       "characterState" | "worldState";
   stateKey:     string;   // dot-path into the source object
   type:         "number" | "text" | "list" | "boolean";
   defaultValue?: string | number | boolean | unknown[];
@@ -63,8 +54,7 @@ Where the value lives in the session state response:
 
 | Value | Reads from | Use for |
 |-------|-----------|---------|
-| `"character"` | `session.character` | Built-in fields: `hp`, `level`, `name`, `className` |
-| `"characterState"` | `characterState` | Session-local data written by mechanics |
+| `"characterState"` | `characterState` | Session-local data: hp, level, gold, inventory, personal flags |
 | `"worldState"` | `worldState` | Shared campaign data visible to all players |
 
 ### `stateKey`
@@ -72,7 +62,7 @@ Where the value lives in the session state response:
 Dot-path to the value. Supports nested access and `.length`:
 
 ```
-"hp"                  → character.hp
+"hp"                  → characterState.hp
 "gold"                → characterState.gold
 "inventory.length"    → characterState.inventory.length
 "location.name"       → characterState.location.name
@@ -108,19 +98,19 @@ If omitted, the indicator shows `—` when the value is missing.
 
 ## Examples
 
-### HP (from built-in character info)
+### HP
 
 ```json
 {
   "id": "hp",
   "label": "HP",
-  "source": "character",
+  "source": "characterState",
   "stateKey": "hp",
   "type": "number"
 }
 ```
 
-`source: "character"` reads from `session.character`, which the engine always populates. No mechanic needed — HP is a first-class field.
+`hp` is initialized via `onCharacterCreated` from the character's class template. Mechanics update it via `characterState` patches.
 
 ---
 
@@ -142,7 +132,7 @@ If omitted, the indicator shows `—` when the value is missing.
 ```typescript
 hooks: {
   onCharacterCreated: async (ctx) => ({
-    characterPatch: { gold: 10 }
+    characterState: { gold: 10 }
   })
 }
 ```
@@ -157,7 +147,7 @@ hooks: {
       const current = typeof ctx.worldState.gold === "number" ? ctx.worldState.gold : 0;
       return {
         ...result,
-        characterPatch: { ...result.characterPatch, gold: current + found }
+        characterState: { ...result.characterState, gold: current + found }
       };
     }
     return result;
@@ -184,10 +174,10 @@ The client renders the list as comma-separated values. Items can be strings or o
 
 ```typescript
 // strings:
-characterPatch: { inventory: ["sword", "torch", "rope"] }
+characterState: { inventory: ["sword", "torch", "rope"] }
 
 // objects (same format used by extraction mechanic):
-characterPatch: { inventory: [
+characterState: { inventory: [
   { id: "iron_shield", label: "Iron Shield" },
   { id: "health_vial", label: "Health Vial" }
 ]}
@@ -204,8 +194,8 @@ onActionResolved: async (result, ctx) => {
       : [];
     return {
       ...result,
-      characterPatch: {
-        ...result.characterPatch,
+      characterState: {
+        ...result.characterState,
         inventory: [...current, ...lootFound]
       }
     };
@@ -235,12 +225,12 @@ const staminaMechanic = defineMechanic({
 
   hooks: {
     onCharacterCreated: async (ctx) => ({
-      characterPatch: { stamina: 100 }
+      characterState: { stamina: 100 }
     }),
 
     onSessionStart: async (ctx) => ({
       // Reset to full each run
-      characterPatch: { stamina: 100 }
+      characterState: { stamina: 100 }
     }),
 
     onActionResolved: async (result, ctx) => {
@@ -253,14 +243,14 @@ const staminaMechanic = defineMechanic({
       if (next === 0) {
         return {
           ...result,
-          characterPatch: { ...result.characterPatch, stamina: 0 },
+          characterState: { ...result.characterState, stamina: 0 },
           message: result.message + "\n\nYou are exhausted."
         };
       }
 
       return {
         ...result,
-        characterPatch: { ...result.characterPatch, stamina: next }
+        characterState: { ...result.characterState, stamina: next }
       };
     }
   },
@@ -332,7 +322,7 @@ Resources are read-only display constructs. They don't create data — your mech
 | `onCharacterCreated` | Per-character data that persists across sessions: starting gold, class-specific stats |
 | `onSessionStart` | Session-local data that resets each run: stamina, session loot, nearExit flag |
 
-Data written to `characterPatch` lands in `characterState` (session-local, private to this player).  
+Data written to `characterState` is session-local and private to this player.  
 Data written to `worldPatch` lands in `worldState` (shared across all players in the campaign).
 
 If you skip initialization and don't set a `defaultValue`, the indicator shows `—`.
@@ -341,19 +331,15 @@ If you skip initialization and don't set a `defaultValue`, the indicator shows `
 
 ## Where `resources/` lives
 
-Resources belong at the **package root**, sibling of `skills/` and `src/`:
+Resources belong at the **module root**, alongside `lore/`, `modules/`, and `src/`:
 
 ```
 my-game/
   resources/      ← here
-  skills/
+  modules/
   lore/
   src/
   dist/
 ```
 
-This mirrors the `skills/` convention and ensures the path resolves correctly from both `src/index.ts` (dev) and `dist/index.js` (prod):
-
-```typescript
-resources: loadResourcesDirSync(new URL("../resources", import.meta.url).pathname)
-```
+For declarative modules they are loaded automatically. For TypeScript modules using `defineMechanics()`, the declarative base handles resource loading — no explicit `loadResourcesDirSync` call needed in your `src/index.ts`.

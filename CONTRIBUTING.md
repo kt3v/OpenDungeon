@@ -18,9 +18,8 @@ OpenDungeon is a monorepo managed with **pnpm** and **Turbo**.
 3. **Environment Setup**:
    Ensure Docker is running, then run:
    ```bash
-   pnpm doctor
-   pnpm setup
-   pnpm llm:setup
+   pnpm od setup
+   pnpm od configure llm
    ```
 4. **Run Development Mode**:
    ```bash
@@ -29,7 +28,7 @@ OpenDungeon is a monorepo managed with **pnpm** and **Turbo**.
 
 ## 🏗 Repository Structure
 
-- `apps/`: Gateway (API), Orchestrator (Runtime), and Web (UI).
+- `apps/`: Gateway (API) and Web (UI).
 - `packages/`: Core engine, SDK, LLM providers, and shared types.
 - `docs/`: In-depth documentation for architecture and mechanics.
 

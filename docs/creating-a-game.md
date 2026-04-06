@@ -49,16 +49,12 @@ my-game/
   lore/                 ← markdown world-building (auto-injected into DM)
     factions.md
     locations.md
-  skills/               ← gameplay rules as JSON (no code needed)
-    bargain.json
-    rest.json
+  modules/              ← per-turn context modules (LLM-routed)
+    stealth.md
+    trading.md
   resources/            ← UI indicators (HP bar, gold counter, etc.)
     hp.json
     gold.json
-  hooks/                ← mechanic hooks as JSON (initial state, session reset)
-    starting-gear.json
-  rules/                ← declarative effects fired after every action
-    hp-drain.json
 ```
 
 Every file is optional except `manifest.json`. The engine falls back gracefully when a file is missing.
@@ -289,65 +285,7 @@ The initial `worldState` for brand-new campaigns. Flat key-value JSON:
 }
 ```
 
-Per-character state (gold, inventory, location) is set in `hooks/`.
-
----
-
-### `skills/*.json` — gameplay rules
-
-The most powerful declarative feature. Drop a `.json` file in `skills/` — the engine picks it up on next restart.
-
-**`resolve: "ai"` — teach the DM a concept:**
-
-```json
-{
-  "id": "bargain",
-  "description": "Negotiate with an NPC over price or terms",
-  "resolve": "ai",
-  "dmPromptExtension": "## Bargaining\nPlayers can haggle with merchants. Success depends on charisma and context.\nOn success: set `merchantRelation` +1 in worldPatch. On failure: -1."
-}
-```
-
-The DM sees this skill in its tool list and knows the rules. No fixed outcome — the DM writes the result narratively.
-
-**`resolve: "deterministic"` — fixed outcome, no LLM call:**
-
-```json
-{
-  "id": "rest",
-  "description": "Rest at a campfire to recover",
-  "resolve": "deterministic",
-  "validate": {
-    "worldStateKey": "campfireActive",
-    "failMessage": "You need an active campfire to rest."
-  },
-  "outcome": {
-    "message": "You rest by the fire. The warmth slowly restores you.",
-    "worldPatch": { "campfireActive": false },
-    "characterPatch": { "hp": 100 }
-  }
-}
-```
-
-**Validation operators:**
-
-```json
-{ "worldStateKey": "gold",             "operator": ">=", "value": 50,   "failMessage": "Need 50 gold." }
-{ "worldStateKey": "inventory.length", "operator": ">",  "value": 0,    "failMessage": "Empty-handed." }
-{ "worldStateKey": "bossDefeated",     "operator": "==", "value": true, "failMessage": "Defeat the boss first." }
-```
-
-Supported: `truthy` (default), `falsy`, `==`, `!=`, `>`, `>=`, `<`, `<=`
-
-**Template interpolation in messages and `dmPromptExtension`:**
-
-```json
-"dmPromptExtension": "Player gold: {{worldState.gold}}. Inventory: {{worldState.inventory.length}} items."
-```
-
-Unknown paths resolve to empty string — the DM prompt stays clean.
-
-See [Mechanics → Skills](./mechanics.md#skills-json) for the full schema reference.
+Per-character state (gold, inventory, location) is initialized in TypeScript mechanics via `onCharacterCreated`.
 
 ---
 
@@ -359,7 +297,7 @@ Map world/character state to visible indicators in the game UI:
 {
   "id": "hp",
   "label": "HP",
-  "source": "character",
+  "source": "characterState",
   "stateKey": "hp",
   "type": "number"
 }
@@ -378,142 +316,14 @@ Map world/character state to visible indicators in the game UI:
 
 | `source` | Reads from | Use for |
 |----------|-----------|---------|
-| `"character"` | Session character info | `hp`, `level`, `name`, `className` |
-| `"characterState"` | Session-local state | gold, inventory, personal flags |
-| `"worldState"` | Shared campaign state | faction reputation, boss HP |
+| `"characterState"` | Session character state | hp, level, gold, inventory, personal flags |
+| `"worldState"` | Shared campaign state | faction reputation, boss HP, global flags |
 
 Types: `"number"`, `"text"`, `"list"`, `"boolean"`
 
 See [Resource Indicators](./resource-indicators.md) for full reference.
 
 ---
-
-### `hooks/*.json` — declarative mechanic hooks
-
-The most common mechanic pattern — setting initial state when a character joins or a session starts — expressed as JSON:
-
-**Give starting gear by class (`hooks/starting-gear.json`):**
-
-```json
-{
-  "id": "starting-gear",
-  "hook": "onCharacterCreated",
-  "characterPatch": { "gold": 10, "inventory": [] },
-  "classBranches": {
-    "Soldier": {
-      "characterPatch": {
-        "gold": 5,
-        "inventory": [{ "id": "iron_sword", "label": "Iron Sword" }]
-      }
-    },
-    "Scholar": {
-      "characterPatch": {
-        "gold": 15,
-        "inventory": [{ "id": "codex", "label": "Worn Codex" }]
-      }
-    }
-  }
-}
-```
-
-The engine reads `character.className`, picks the matching branch, and merges the patches. If no branch matches, it falls back to the root `characterPatch`.
-
-**Reset session state on each run (`hooks/session-reset.json`):**
-
-```json
-{
-  "id": "session-reset",
-  "hook": "onSessionStart",
-  "characterPatch": { "sessionLoot": [], "nearExit": false }
-}
-```
-
-**React to session end (`hooks/extraction-cleanup.json`):**
-
-```json
-{
-  "id": "extraction-cleanup",
-  "hook": "onSessionEnd",
-  "reason": "extraction_success",
-  "worldPatch": { "totalExtractions": null }
-}
-```
-
-`reason` is optional — omit to fire on any session end.
-
-**Supported hooks in JSON:** `onCharacterCreated`, `onSessionStart`, `onSessionEnd`
-
-For `onActionSubmitted`, `onActionResolved`, and complex stateful logic → use a TypeScript mechanic or `rules/*.json` (see below).
-
----
-
-### `rules/*.json` — declarative effects after every action
-
-Rules fire on `onActionResolved` and apply state mutations when an optional condition is met. They cover the most common "every-turn mechanic" patterns without TypeScript.
-
-**Targets** — prefix determines which state store is written to:
-- `"characterState.<key>"` → session-local character state (private)
-- `"worldState.<key>"` → shared campaign state
-
-**Condition** — optional guard that reads from merged worldState (characterState is merged in):
-
-```json
-{ "key": "characterState.poisoned", "operator": "==", "value": true }
-{ "key": "characterState.hp",       "operator": "<=", "value": 0    }
-{ "key": "worldState.bossDefeated", "operator": "==", "value": true }
-```
-
-**Examples:**
-
-```json
-// rules/hp-drain.json — lose 1 HP every action
-{
-  "id": "hp-drain",
-  "trigger": "onActionResolved",
-  "effects": [
-    { "op": "decrement", "target": "characterState.hp", "amount": 1, "min": 0 }
-  ]
-}
-```
-
-```json
-// rules/death-check.json — end session when HP hits 0
-{
-  "id": "death-check",
-  "trigger": "onActionResolved",
-  "condition": { "key": "characterState.hp", "operator": "<=", "value": 0 },
-  "effects": [
-    { "op": "endSession", "reason": "player_death" }
-  ]
-}
-```
-
-```json
-// rules/poison-tick.json — poison deals 3 damage per turn
-{
-  "id": "poison-tick",
-  "trigger": "onActionResolved",
-  "condition": { "key": "characterState.poisoned", "operator": "==", "value": true },
-  "effects": [
-    { "op": "decrement", "target": "characterState.hp", "amount": 3, "min": 0 }
-  ]
-}
-```
-
-**Available ops:**
-
-| op | What it does |
-|----|-------------|
-| `increment` | Add `amount` to a number. Optional `max` clamp. |
-| `decrement` | Subtract `amount` from a number. Optional `min` clamp (default 0). |
-| `set` | Set a key to a fixed value. |
-| `append` | Append a value to an array (creates array if absent). |
-| `remove` | Remove from array: by `id` (object match) or `value` (strict equality). |
-| `endSession` | End the session with the given `reason`. |
-
-Rules run **after** all other mechanics on every action. Multiple rules can fire per turn.
-
-For conditional logic that reads DM output dynamically, or effects that depend on the previous turn's computed result → use a TypeScript mechanic.
 
 ---
 
@@ -525,21 +335,13 @@ Once your `setting.json` exists, you can ask the Architect to generate the rest:
 pnpm od architect scaffold --module ../my-game --type all
 ```
 
-The Architect reads your setting, then generates `classes.json`, `dm.md`, `dm-config.json`, `initial-state.json`, and starter `hooks/`. Review the output, adjust, and you're playing.
-
-To migrate existing TypeScript files:
-
-```bash
-pnpm od architect scaffold --module ../my-game --migrate
-# Reads src/content/classes.ts → generates classes.json
-# Reads src/content/dm-config.ts → generates dm.md + dm-config.json
-```
+The Architect reads your setting, then generates `classes.json`, `dm.md`, `dm-config.json`, `initial-state.json`, and starter `modules/`. Review the output, adjust, and you're playing.
 
 ---
 
 ## Grow your game over time
 
-### Discover missing skills
+### Discover missing mechanics
 
 After players have been playing, the Architect can find patterns in what they tried to do that no mechanic handled:
 
@@ -547,7 +349,7 @@ After players have been playing, the Architect can find patterns in what they tr
 pnpm od architect analyze --campaign <id> --min-count 3
 ```
 
-This reads session logs, groups unhandled player intents, and generates suggested `skills/*.json` files. Review them, drop the ones you like into `skills/`, restart.
+This reads session logs, groups unhandled player intents, and suggests new context modules or TypeScript mechanics to add.
 
 ### Validate your files
 
@@ -561,52 +363,27 @@ Checks all JSON files against their schemas and reports every error at once.
 
 ## TypeScript mode (advanced)
 
-For mechanics that require real code — cross-session loot accumulation, intercepting DM output, complex conditional logic — use TypeScript mode.
+For mechanics that require real code — cross-session loot accumulation, intercepting DM output, complex conditional logic — add a `src/index.ts` that exports additional mechanics.
 
-\`\`\`bash
+```bash
 pnpm od create-module ../my-game --typescript
-# Generates src/index.ts, src/content/classes.ts, src/content/dm-config.ts
+# Generates src/index.ts with a defineMechanics() scaffold
 # Requires pnpm install && pnpm build before running
-\`\`\`
+```
 
-In TypeScript mode you write `src/index.ts` that calls `defineGameModule({...})`, and the manifest `entry` points to `"dist/index.js"`.
-
-You can also **mix both modes**: keep TypeScript for mechanics that need code, and use the new declarative loaders for everything else:
+The manifest `entry` points to `"dist/index.js"`. Your `src/index.ts` only exports mechanics — all other data (classes, DM config, setting, resources) continues to come from JSON/Markdown files in the module root:
 
 ```typescript
-// src/index.ts — hybrid module
-import {
-  defineGameModule,
-  loadSkillsDirSync,
-  loadResourcesDirSync,
-  loadClassesFileSync,       // replaces classes.ts
-  loadDmConfigFileSync,      // replaces dm-config.ts
-  loadInitialStateFileSync,  // replaces worldState: () => ({...})
-  loadHooksDirSync,
-  hookSchemasToMechanics
-} from "@opendungeon/content-sdk";
-import { extractionMechanic } from "./mechanics/extraction.js"; // TypeScript for complex logic
+// src/index.ts
+import { defineMechanics, defineMechanic } from "@opendungeon/content-sdk";
+import { extractionMechanic } from "./mechanics/extraction.js";
 
-const classData  = loadClassesFileSync(new URL("../classes.json", import.meta.url).pathname);
-const dmConfig   = loadDmConfigFileSync(new URL("../dm-config.json", import.meta.url).pathname) ?? {};
-const initState  = loadInitialStateFileSync(new URL("../initial-state.json", import.meta.url).pathname) ?? {};
-const hookSchemas = loadHooksDirSync(new URL("../hooks", import.meta.url).pathname);
-
-export default defineGameModule({
-  manifest,
-  initial: { worldState: () => ({ ...initState }) },
-  characters: {
-    availableClasses: classData?.classes.map(c => c.name) ?? ["Adventurer"],
-    getTemplate: (cls) => classData?.classes.find(c => c.name === cls) ?? classData?.fallback ?? { level: 1, hp: 100 }
-  },
-  dm: dmConfig,
-  mechanics: [...hookSchemasToMechanics(hookSchemas), extractionMechanic],
-  skills: loadSkillsDirSync(new URL("../skills", import.meta.url).pathname),
-  resources: loadResourcesDirSync(new URL("../resources", import.meta.url).pathname)
+export default defineMechanics({
+  mechanics: [extractionMechanic]
 });
 ```
 
-In a hybrid module, `setting.json` and `lore/*.md` are still loaded automatically by the engine from the module root. Only `classes.json`, `dm.md`, `dm-config.json`, `initial-state.json`, and `hooks/*.json` need the explicit loaders.
+The engine merges these mechanics with the declarative base at runtime. No need to re-declare classes, DM config, or any other declarative data in TypeScript.
 
 See [Mechanics](./mechanics.md) for a full guide on TypeScript mechanics.
 
@@ -614,6 +391,6 @@ See [Mechanics](./mechanics.md) for a full guide on TypeScript mechanics.
 
 ## Reference implementation
 
-`packages/game-example` is a full TypeScript game module with complex mechanics (per-player location, cross-session loot extraction). It shows what's possible with TypeScript mode, and demonstrates how declarative skills and resources coexist with TypeScript mechanics.
+`packages/game-example` is a full TypeScript game module with complex mechanics (per-player location, cross-session loot extraction). It shows what's possible with TypeScript mode, and demonstrates how TypeScript mechanics coexist with declarative modules and resources.
 
 For a simpler reference, run `pnpm od create-module` and look at the generated declarative module scaffold.

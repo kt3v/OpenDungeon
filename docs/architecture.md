@@ -12,13 +12,13 @@ OpenDungeon separates engine runtime from game content. The engine loads your ga
 │                                                      │
 │  Declarative mode (default)  │  TypeScript mode      │
 │  classes.json                │  src/index.ts         │
-│  dm.md + dm-config.json      │  src/content/*.ts     │
-│  initial-state.json          │  src/mechanics/*.ts   │
-│  hooks/*.json                │  dist/index.js        │
+│  dm.md + dm-config.json      │  src/mechanics/*.ts   │
+│  initial-state.json          │  dist/index.js        │
+│  modules/*.md                │                       │
 │                              │                       │
-│  skills/         resources/         lore/            │
-│  bargain.json    hp.json            factions.md      │
-│  rest.json       gold.json          locations.md     │
+│  resources/         lore/                            │
+│  hp.json            factions.md                      │
+│  gold.json          locations.md                     │
 └──────────────────────────────┬───────────────────────┘
                                │  GAME_MODULE_PATH
 ┌──────────────────────────────▼───────────────────────┐
@@ -27,11 +27,11 @@ OpenDungeon separates engine runtime from game content. The engine loads your ga
 ├──────────────────────────────────────────────────────┤
 │               packages/engine-core                   │
 │   EngineRuntime · DungeonMasterRuntime               │
-│   skill-loader · hook-loader · turn pipeline         │
+│   ContextRouterRuntime · turn pipeline               │
 ├──────────────────────────────────────────────────────┤
 │               packages/content-sdk                   │
-│   GameModule · Mechanic · SkillSchema                │
-│   loadDeclarativeGameModule · hookSchemasToMechanics │
+│   GameModule · Mechanic · defineMechanics            │
+│   loadDeclarativeGameModule · loadContextModulesDirSync │
 │   (the only package your game installs)              │
 └──────────────────────────────────────────────────────┘
 ```
@@ -134,7 +134,7 @@ The DM system prompt is built in layers, injected in this order:
 | Package | What it does |
 |---------|-------------|
 | `shared` | Zod schemas, shared types (`SessionEndReason`, `ModuleManifest`, declarative file schemas) |
-| `content-sdk` | Public API for game developers: `GameModule`, `Mechanic`, `SkillSchema`, all loaders, `loadDeclarativeGameModule`, `hookSchemasToMechanics` |
+| `content-sdk` | Public API for game developers: `GameModule`, `Mechanic`, `defineMechanics`, all loaders, `loadDeclarativeGameModule`, `loadContextModulesDirSync` |
 | `providers-llm` | LLM abstraction: OpenAI-compat, Anthropic-compat, mock |
 | `engine-core` | Turn pipeline, `EngineRuntime`, `DungeonMasterRuntime`, skill-loader |
 | `architect` | Lore extraction, session chronicler, skill suggestion, game scaffolder |
@@ -160,9 +160,9 @@ Two kinds of mutable state exist per campaign:
 
 **World state** (`worldPatch`) — shared across all players. Stored in `WorldFact` rows per key. Examples: doors opened, bosses defeated, world lore, global quest flags.
 
-**Character state** (`characterPatch`) — private to one session. Stored in `Session.characterState`. Examples: `nearExit`, `sessionLoot`, personal buffs.
+**Character state** (`characterState`) — private to one session. Stored in `Session.characterState`. Examples: `nearExit`, `sessionLoot`, personal buffs.
 
-Mechanics choose which they write to by returning `worldPatch` or `characterPatch` in their results.
+Mechanics choose which they write to by returning `worldPatch` or `characterState` in their results.
 
 ### Session vs campaign
 
@@ -171,15 +171,6 @@ Mechanics choose which they write to by returning `worldPatch` or `characterPatc
 - One campaign → many sessions; each session has its own character state
 
 ---
-
-## Skill system
-
-JSON skills and TypeScript mechanics coexist. At startup, `EngineRuntime` converts the `skills: SkillSchema[]` array into a single synthetic mechanic with id `"skills"`. This mechanic is appended after all TypeScript mechanics.
-
-Routing keys for skills follow `"skills.<skillId>"`, e.g. `"skills.camp"`, `"skills.bargain"`.
-
-`resolve: "ai"` skills only contribute `dmPromptExtension` (no action registered — DM narrates freely).  
-`resolve: "deterministic"` skills register a named action and appear in the DM's tools list.
 
 ---
 
@@ -202,16 +193,12 @@ The Architect is a background system for lore and analytics. It runs on two mode
 
 **Worldbuilder** — interactive CLI (`pnpm od architect`) for seeding campaign lore before launch.
 
-**Skill analyzer** — reads `EventLog` for `type: "intent.unhandled"` entries (written when DM narrates freely without a mechanic), groups by pattern, and asks an LLM to suggest new `SkillSchema` files for the game developer to review.
+**Intent analyzer** — reads `EventLog` for `type: "intent.unhandled"` entries (written when DM narrates freely without a mechanic), groups by pattern, and suggests new context modules or mechanics for the game developer to review.
 
-**Game scaffolder** — `pnpm od architect scaffold` generates or migrates declarative game module files (classes.json, dm.md, dm-config.json, initial-state.json, hooks/*.json) using an LLM. Can also migrate existing TypeScript configs to their JSON equivalents.
+**Game scaffolder** — `pnpm od architect scaffold` generates declarative game module files (classes.json, dm.md, dm-config.json, initial-state.json, modules/) using an LLM.
 
 ---
 
-## Gateway vs Orchestrator
+## Gateway
 
-The repo includes two server apps:
-
-**`apps/gateway`** — stateful server. Manages users, campaigns, sessions, persistence (Prisma + PostgreSQL). Recommended for all deployments.
-
-**`apps/orchestrator`** — stateless scaffold. No database dependency. Designed for horizontal scaling scenarios where each instance handles one session and reports state back to a coordinator. Not production-ready — exists as an architectural scaffold.
+**`apps/gateway`** — stateful server. Manages users, campaigns, sessions, persistence (Prisma + PostgreSQL). The only server app in the repo.

@@ -55,7 +55,7 @@ packages/game-example/
   src/
     index.ts                # defineMechanics() extension entry point
     mechanics/
-      location.ts           # Hooks location from worldPatch into characterPatch (per-player)
+      location.ts           # Moves location from worldPatch into characterState (per-player)
       extraction.ts         # Accumulates session loot, surfaces Extract action at exits
 ```
 
@@ -65,7 +65,7 @@ packages/game-example/
 
 ### `location.ts`
 
-The location mechanic intercepts every action result (`onActionResolved`) and moves the `location` key from `worldPatch` (shared) to `characterPatch` (private). This keeps each player's position hidden from others — a behaviour that can't be expressed in a JSON hook because it requires reading and modifying the DM's output dynamically.
+The location mechanic intercepts every action result (`onActionResolved`) and moves the `location` key from `worldPatch` (shared) to `characterState` (private). This keeps each player's position hidden from others — a behaviour that requires reading and modifying the DM's output dynamically, which only a TypeScript mechanic can do.
 
 ### `extraction.ts`
 
@@ -75,7 +75,7 @@ The extraction mechanic:
 3. Surfaces the Extract action only when `nearExit === true`
 4. On session end (`onSessionEnd`): transfers `sessionLoot` to `persistedLoot` only on `"extraction_success"`
 
-This cross-session accumulation logic requires reading dynamic state and making conditional decisions — beyond what a static JSON hook can express.
+This cross-session accumulation logic requires reading dynamic state and making conditional decisions — beyond what declarative files can express.
 
 ---
 

@@ -42,7 +42,7 @@ Then it starts the chat:
   Provider : openai-compatible / gpt-4o-mini
   Campaign : The Shadow Run (abc123)
   Game     : OpenDungeon Classic  (packages/game-example)
-  Files    : skills/look.json, skills/camp.json, hooks/starting-gear.json
+  Files    : modules/stealth.md, modules/trading.md, lore/factions.md
 
   Type your request, 'help' for examples, 'exit' to quit.
 
@@ -76,13 +76,12 @@ my-game/
   dm.md               ← DM system prompt
   dm-config.json      ← guardrails and action buttons
   initial-state.json  ← starting world state
-  skills/             ← gameplay rules (JSON)
-  hooks/              ← lifecycle events (JSON)
-  rules/              ← per-turn effects (JSON)
+  modules/            ← per-turn context modules (Markdown, LLM-routed)
   lore/               ← world lore (Markdown)
+  resources/          ← UI indicators (JSON)
 ```
 
-When you ask the Architect to "create a skill" or "add a rule", it writes files directly into this folder.
+When you ask the Architect to "add a trading module" or "write a lore file", it writes files directly into this folder.
 
 ---
 
@@ -93,12 +92,11 @@ The Architect knows the full engine — turn pipeline, module loading order, all
 ### Creating game content
 
 ```
-> create a 'meditate' skill that lets players recover 10 HP — deterministic, only if hp < 50
-> add a starting-gear hook that gives Warriors a sword and Mages a staff
-> write a death-check rule that ends the session when HP reaches 0
-> add a poison rule that drains 2 HP per turn while worldState.poisoned is true
+> add a stealth module with rules for sneaking past guards
+> add a trading module that teaches the DM how to handle merchant negotiations
 > update dm.md to make the DM more terse and punishing
 > add a lore file about the four noble factions
+> add a new class: Paladin with hp 120 and high charisma
 ```
 
 ### Configuring the module
@@ -122,10 +120,10 @@ The Architect knows the full engine — turn pipeline, module loading order, all
 
 ```
 > how does the turn pipeline work?
-> what's the difference between hooks and rules?
-> when should I use resolve: "ai" vs resolve: "deterministic"?
-> explain how routing keys work
+> when should I use a context module vs a TypeScript mechanic?
+> explain how the context router selects modules per turn
 > what does dmPromptExtension do?
+> how do I add per-turn state effects like HP drain?
 ```
 
 ---
@@ -138,12 +136,14 @@ When the Architect proposes a change, it shows you the pending operations before
 Architect: I'll create a deterministic meditate skill with an HP check.
 
 Pending operations (1):
-  1. write_file skills/meditate.json — Add meditate skill (resolve: deterministic)
-     {
-       "id": "meditate",
-       "description": "Meditate to recover 10 HP",
-       "resolve": "deterministic",
-       ...
+  1. write_file modules/meditate.md — Add meditate context module
+     ---
+     id: meditate
+     triggers:
+       - meditate
+       - rest
+     ---
+     ...
 
 Apply these operations? [y/N]
 ```
@@ -195,15 +195,14 @@ The Architect can create or overwrite any of these files inside your module root
 
 | Path pattern | Purpose |
 |---|---|
-| `skills/<id>.json` | JSON skill (resolve: ai or deterministic) |
-| `hooks/<id>.json` | Lifecycle hook (onCharacterCreated, onSessionStart, onSessionEnd) |
-| `rules/<id>.json` | Per-turn rule (onActionResolved, increment/decrement/endSession) |
+| `modules/<id>.md` | Per-turn context module (LLM-routed gameplay guidance) |
+| `lore/<topic>.md` | World lore (always injected into DM prompt) |
 | `dm.md` | DM system prompt |
 | `dm-config.json` | Tool policy, guardrails, default action buttons |
 | `setting.json` | World bible (era, tone, taboos) |
 | `classes.json` | Character classes and starting stats |
 | `initial-state.json` | Starting world state for new campaigns |
-| `lore/<topic>.md` | Lore markdown files |
+| `resources/<id>.json` | UI resource indicator |
 
 The Architect will never write outside your module root, and will never touch engine packages or gateway internals.
 
@@ -214,7 +213,7 @@ The Architect will never write outside your module root, and will never touch en
 The `od architect` chat is for interactive development. Two additional subcommands handle specific one-shot tasks:
 
 ```bash
-# Generate declarative files from setting.json (classes, dm, hooks, etc.)
+# Generate declarative files from setting.json (classes, dm, modules, etc.)
 od architect scaffold --module ../my-game
 
 # Find player actions that no mechanic handled, suggest new skills

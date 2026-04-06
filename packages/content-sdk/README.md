@@ -12,99 +12,36 @@ pnpm add @opendungeon/content-sdk
 
 ## Quick start
 
-```typescript
-// src/index.ts
-import { defineGameModule, loadSkillsDirSync } from "@opendungeon/content-sdk";
-import { dmConfig } from "./content/dm-config.js";
-import { availableClasses, getCharacterTemplate } from "./content/classes.js";
+Most games are fully declarative — no TypeScript needed. Add a `src/index.ts` only when you need custom mechanics:
 
-export default defineGameModule({
-  manifest: {
-    name: "@my-org/my-game",
-    version: "0.1.0",
-    engine: "^1.0.0",
-    contentApi: "^2.0.0",
-    capabilities: [],
-    entry: "dist/index.js",
-    stateVersion: 1
-  },
-  initial: {
-    worldState: () => ({})
-  },
-  characters: {
-    availableClasses,
-    getTemplate: getCharacterTemplate
-  },
-  dm: dmConfig,
-  mechanics: [],
-  skills: loadSkillsDirSync(new URL("../skills", import.meta.url).pathname)
+```typescript
+// src/index.ts — only needed for TypeScript mechanics
+import { defineMechanics, defineMechanic } from "@opendungeon/content-sdk";
+
+const startingGearMechanic = defineMechanic({
+  id: "starting-gear",
+  hooks: {
+    onCharacterCreated: async (ctx) => {
+      const gear: Record<string, unknown> = {
+        Soldier: [{ id: "iron_sword", label: "Iron Sword" }],
+        Scholar: [{ id: "codex", label: "Worn Codex" }],
+      };
+      return {
+        characterState: {
+          gold: 10,
+          inventory: gear[ctx.characterClass] ?? []
+        }
+      };
+    }
+  }
+});
+
+export default defineMechanics({
+  mechanics: [startingGearMechanic]
 });
 ```
 
----
-
-## JSON skills
-
-The fastest way to add gameplay. Drop a `.json` file in your `skills/` directory (at the package root, sibling of `src/`).
-
-### `resolve: "ai"` — DM handles the outcome
-
-```json
-{
-  "id": "bargain",
-  "description": "Negotiate prices or terms with an NPC",
-  "resolve": "ai",
-  "dmPromptExtension": "## Bargaining\nPlayers can haggle. On success set merchantRelation +1 in worldPatch, on failure -1."
-}
-```
-
-### `resolve: "deterministic"` — fixed outcome, no LLM call
-
-```json
-{
-  "id": "rest",
-  "description": "Rest at a campfire to recover HP",
-  "resolve": "deterministic",
-  "validate": {
-    "worldStateKey": "campfireActive",
-    "failMessage": "You need a campfire to rest."
-  },
-  "outcome": {
-    "message": "You rest by the fire. HP restored.",
-    "worldPatch": { "campfireActive": false },
-    "characterPatch": { "hp": 100 }
-  }
-}
-```
-
-### Validation operators
-
-```json
-{ "worldStateKey": "gold",    "operator": ">=", "value": 50,   "failMessage": "Need 50 gold." }
-{ "worldStateKey": "level",   "operator": ">=", "value": 3,    "failMessage": "Need level 3." }
-{ "worldStateKey": "bossDefeated", "operator": "==", "value": true, "failMessage": "Defeat the boss first." }
-```
-
-All operators: `truthy` (default), `falsy`, `==`, `!=`, `>`, `>=`, `<`, `<=`
-
-### Template interpolation
-
-Both `dmPromptExtension` and `outcome.message` support `{{worldState.*}}` expressions:
-
-```json
-"dmPromptExtension": "Current gold: {{worldState.gold}}\nItems: {{worldState.inventory.length}}"
-```
-
-### Load skills in your module
-
-```typescript
-import { loadSkillsDirSync } from "@opendungeon/content-sdk";
-
-// In defineGameModule:
-skills: loadSkillsDirSync(new URL("../skills", import.meta.url).pathname)
-```
-
-`loadSkillsDirSync` reads all `*.json` files from the directory. Each file can be a single skill object or an array. Invalid files are skipped with a warning.
+All other module data (classes, DM config, setting, resources) is loaded from JSON/Markdown files in the module root.
 
 ---
 
@@ -220,37 +157,10 @@ export const extractionMechanic = defineMechanic({
 ```typescript
 interface ActionResult {
   message: string;
-  worldPatch?: Record<string, unknown>;      // shared — all players see it
-  characterPatch?: Record<string, unknown>;  // private — this session only
+  worldPatch?: Record<string, unknown>;       // shared — all players see it
+  characterState?: Record<string, unknown>;   // private — this session only
   suggestedActions?: SuggestedAction[];
-  endSession?: SessionEndReason;             // "extraction_success" | "player_death" | ...
-}
-```
-
----
-
-## `SkillSchema` reference
-
-```typescript
-interface SkillSchema {
-  id: string;
-  description: string;
-  resolve: "ai" | "deterministic";
-  dmPromptExtension?: string;        // supports {{worldState.*}}
-  paramSchema?: object;              // JSON Schema for DM args
-  validate?: {
-    worldStateKey: string;           // dot-path: "gold", "player.level"
-    operator?: SkillValidationOperator;  // default: "truthy"
-    value?: unknown;
-    failMessage: string;
-  };
-  outcome?: {                        // required for resolve: "deterministic"
-    message: string;                 // supports {{worldState.*}}
-    worldPatch?: Record<string, unknown>;
-    characterPatch?: Record<string, unknown>;
-    suggestedActions?: SuggestedAction[];
-    endSession?: SessionEndReason;
-  };
+  endSession?: SessionEndReason;              // "extraction_success" | "player_death" | ...
 }
 ```
 
@@ -260,16 +170,22 @@ interface SkillSchema {
 
 | Export | Description |
 |--------|-------------|
-| `defineGameModule` | Define your game module |
+| `defineMechanics` | Export TypeScript mechanics from `src/index.ts` |
 | `defineMechanic` | Define a TypeScript mechanic with full type inference |
-| `defineSkill` | Define a typed skill schema object |
-| `loadSkillsDirSync` | Load all `*.json` skill files from a directory |
+| `defineResource` | Define a typed resource schema object |
+| `loadDeclarativeGameModule` | Load a full declarative game module from a directory |
+| `loadContextModulesDirSync` | Load all `*.md` context modules from `modules/` or `contexts/` |
 | `loadLoreFilesSync` | Load all `*.md` lore files from a directory |
+| `loadClassesFileSync` | Load `classes.json` |
+| `loadDmConfigFileSync` | Load `dm-config.json` |
+| `loadDmPromptFileSync` | Load `dm.md` |
+| `loadInitialStateFileSync` | Load `initial-state.json` |
+| `loadResourcesDirSync` | Load all `*.json` resource files from `resources/` |
 | `GameModule` | Interface for the game module |
+| `TypeScriptModuleExtension` | Interface for TypeScript-only mechanic exports |
 | `Mechanic` | Interface for a TypeScript mechanic |
-| `SkillSchema` | Interface for a JSON skill |
+| `ResourceSchema` | Interface for a UI resource indicator |
 | `SettingConfig` | Interface for setting.json configuration |
-| `GameModuleSetting` | Interface for the complete setting (config + lore) |
 | `ActionResult` | Interface for action results |
 | `CharacterTemplate` | Interface for character class templates |
 | `DungeonMasterModuleConfig` | Interface for DM configuration |

@@ -152,7 +152,7 @@ pnpm od configure [llm|ports|module]        Change settings
 pnpm od reset                               Wipe all local state
 
 pnpm od architect --campaign <id> [--apply] Seed world lore interactively
-pnpm od architect analyze --campaign <id>   Find unhandled intents, suggest skills
+pnpm od architect analyze --campaign <id>   Find unhandled intents, suggest mechanics
 pnpm od create-module <dir>                 Scaffold a new game workspace
 ```
 
@@ -164,14 +164,14 @@ After your game has been played, discover what players are trying to do that no 
 pnpm architect analyze --campaign abc123 --min-count 3
 ```
 
-The command reads session logs, groups unhandled intents by pattern, and asks the Architect LLM to generate `SkillSchema` suggestions. Review them interactively, save the ones you like, move them to `skills/` — done.
+The command reads session logs, groups unhandled intents by pattern, and asks the Architect LLM to suggest new context modules or TypeScript mechanics. Review them interactively and add the ones you like to your module.
 
 ---
 
 ## Documentation
 
 - [Creating a Game](docs/creating-a-game.md) — full guide for game developers
-- [Mechanics](docs/mechanics.md) — skills (JSON) and TypeScript mechanics
+- [Mechanics](docs/mechanics.md) — context modules and TypeScript mechanics
 - [Architecture](docs/architecture.md) — system design and turn pipeline
 
 ---
@@ -181,8 +181,8 @@ The command reads session logs, groups unhandled intents by pattern, and asks th
 | Package | Purpose |
 |---------|---------|
 | `@opendungeon/content-sdk` | The only package your game needs to install |
-| `@opendungeon/engine-core` | Turn pipeline, DM orchestration, skill loader |
-| `@opendungeon/architect` | Lore extraction, chronicler, skill suggestion |
+| `@opendungeon/engine-core` | Turn pipeline, DM orchestration, context router |
+| `@opendungeon/architect` | Lore extraction, chronicler, intent analysis |
 | `@opendungeon/providers-llm` | LLM abstraction (OpenAI-compat, Anthropic-compat, mock) |
 | `@opendungeon/devtools` | `od` CLI |
 
