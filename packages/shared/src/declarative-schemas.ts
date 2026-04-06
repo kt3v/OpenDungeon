@@ -61,6 +61,13 @@ const dmPromptTemplateSchema = z.object({
   lines: z.array(z.string())
 });
 
+const dmContextRouterSchema = z.object({
+  enabled: z.boolean().optional(),
+  contextTokenBudget: z.number().int().positive().optional(),
+  maxCandidates: z.number().int().positive().optional(),
+  maxSelectedModules: z.number().int().positive().optional()
+});
+
 /**
  * Schema for dm-config.json.
  *
@@ -76,7 +83,8 @@ export const dmConfigFileSchema = z.object({
   promptTemplate: dmPromptTemplateSchema.optional(),
   guardrails: dmGuardrailsSchema.optional(),
   toolPolicy: dmToolPolicySchema.optional(),
-  defaultSuggestedActions: z.array(suggestedActionSchema).optional()
+  defaultSuggestedActions: z.array(suggestedActionSchema).optional(),
+  contextRouter: dmContextRouterSchema.optional()
 });
 
 export type DmConfigFile = z.infer<typeof dmConfigFileSchema>;

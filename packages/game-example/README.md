@@ -15,7 +15,8 @@ The reference implementation for OpenDungeon. This module demonstrates **TypeScr
 - **Per-player location** — each character has a private location in a shared world (`location.ts`)
 - **Roguelite extraction** — session loot accumulates, only persists if you escape (`extraction.ts`)
 - **Cross-session state** — loot survives across sessions when the player extracts successfully
-- **TypeScript + JSON coexistence** — complex mechanics in `.ts`, simple rules in `skills/*.json`
+- **Mechanics-first gameplay actions** — gameplay actions (`extract`, `camp`, `revive`) live in TypeScript mechanics
+- **Routed markdown context modules** — DM guidance lives in `modules/*.md` and is selected per action
 - **Setting system** — structured `setting.json` + rich markdown lore in `lore/`
 - **Resource indicators** — HP, gold, inventory, location mapped to UI via `resources/*.json`
 
@@ -27,6 +28,8 @@ The reference implementation for OpenDungeon. This module demonstrates **TypeScr
 packages/game-example/
   manifest.json             # Module metadata (entry: "dist/index.js")
   setting.json              # World bible (era, tone, themes, taboos)
+  dm.md                     # Base DM prompt
+  dm-config.json            # DM tool policy + guardrails + context router config
   package.json
   tsconfig.json
 
@@ -34,13 +37,14 @@ packages/game-example/
     locations.md
     factions.md
 
-  skills/                   # JSON skills — no TypeScript needed
-    look.json               # resolve: "ai" — DM describes surroundings
-    listen.json             # resolve: "ai" — DM describes sounds
-    inspect.json            # resolve: "ai" — DM examines objects
-    stealth.json            # resolve: "ai" — stealth rules and context
-    camp.json               # resolve: "deterministic" — rest action
-    revive.json             # resolve: "deterministic" — revival token use
+  modules/                  # Routed Markdown DM context modules
+    exploration.md
+    location-rules.md
+    extraction-rules.md
+    sound-awareness.md
+    stealth.md
+    camping.md
+    revival.md
 
   resources/                # UI indicators — no TypeScript needed
     hp.json
@@ -49,10 +53,7 @@ packages/game-example/
     location.json
 
   src/
-    index.ts                # defineGameModule() entry point
-    content/
-      classes.ts            # Warrior, Mage, Ranger — starting stats
-      dm-config.ts          # DM prompt, tool policy, guardrails
+    index.ts                # defineMechanics() extension entry point
     mechanics/
       location.ts           # Hooks location from worldPatch into characterPatch (per-player)
       extraction.ts         # Accumulates session loot, surfaces Extract action at exits

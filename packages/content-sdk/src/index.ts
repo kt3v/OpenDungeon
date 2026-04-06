@@ -1,18 +1,14 @@
 import type { ModuleManifest, SessionEndReason } from "@opendungeon/shared";
 
 export {
-  loadSkillsDirSync,
   loadLoreFilesSync,
   loadResourcesDirSync,
+  loadContextModulesDirSync,
   loadClassesFileSync,
   loadDmPromptFileSync,
   loadDmConfigFileSync,
-  loadInitialStateFileSync,
-  loadHooksDirSync,
-  loadRulesDirSync
+  loadInitialStateFileSync
 } from "./node-utils.js";
-export { hookSchemasToMechanics } from "./hook-loader.js";
-export { ruleSchemasToMechanics } from "./rule-loader.js";
 export { loadDeclarativeGameModule, loadDeclarativeModuleBase } from "./declarative-loader.js";
 export type { DeclarativeModuleResult, DeclarativeModuleBase, DeclarativeBaseResult } from "./declarative-loader.js";
 
@@ -70,7 +66,7 @@ export interface ActionResult {
   /** When set the engine will run the session-end pipeline after this turn. */
   endSession?: SessionEndReason;
   /**
-   * Set by the engine when a mechanic action (TypeScript or declarative skill)
+   * Set by the engine when a mechanic action
    * handled this turn. False/absent means the DM narrated freely without
    * invoking any mechanic — useful for analytics and unhandled-intent detection.
    */
@@ -176,12 +172,6 @@ export interface Mechanic {
    *   - `PlayerAction.text` exactly matches `<key>` (case-insensitive).
    */
   actions?: Record<string, MechanicActionDef>;
-
-  /**
-   * Extra text appended to the DM system prompt every turn.
-   * Use to inform the DM about mechanic-specific rules and world state fields.
-   */
-  dmPromptExtension?(ctx: { worldState: Record<string, unknown> }): string;
 }
 
 /** Type-safe helper — returns the mechanic as-is (identity). */
@@ -220,14 +210,6 @@ export interface GameModule {
    * Earlier mechanics take priority for action routing.
    */
   mechanics: Mechanic[];
-
-  /**
-   * Declarative skills loaded alongside TypeScript mechanics.
-   * Each skill is converted to a Mechanic by the engine at startup —
-   * no TypeScript code required for simple gameplay rules.
-   * Skills are processed after all TypeScript mechanics.
-   */
-  skills?: SkillSchema[];
 
   /**
    * Declarative resource definitions for UI display.
@@ -466,6 +448,24 @@ export interface DungeonMasterModuleConfig {
   toolPolicy?: DungeonMasterToolPolicy;
   defaultSuggestedActions?: SuggestedAction[];
   suggestedActionStrategy?: SuggestedActionStrategy;
+  contextModules?: DungeonMasterContextModule[];
+  contextRouter?: DungeonMasterContextRouterConfig;
+}
+
+export interface DungeonMasterContextModule {
+  id: string;
+  content: string;
+  priority?: number;
+  alwaysInclude?: boolean;
+  triggers?: string[];
+  file?: string;
+}
+
+export interface DungeonMasterContextRouterConfig {
+  enabled?: boolean;
+  contextTokenBudget?: number;
+  maxCandidates?: number;
+  maxSelectedModules?: number;
 }
 
 // ---------------------------------------------------------------------------

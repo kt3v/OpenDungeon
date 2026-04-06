@@ -6,49 +6,132 @@
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import type { SkillSchema, ResourceSchema, CharacterTemplate, DungeonMasterModuleConfig } from "./index.js";
+import type {
+  ResourceSchema,
+  CharacterTemplate,
+  DungeonMasterModuleConfig,
+  DungeonMasterContextModule
+} from "./index.js";
 import {
   classesFileSchema,
   dmConfigFileSchema,
   initialStateFileSchema,
-  hookSchema,
-  ruleSchema,
-  type CharacterClassEntry,
-  type HookSchema,
-  type RuleSchema
+  type CharacterClassEntry
 } from "@opendungeon/shared";
 
-const isSkillSchema = (value: unknown): value is SkillSchema => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const obj = value as Record<string, unknown>;
-  return (
-    typeof obj.id === "string" &&
-    obj.id.trim().length > 0 &&
-    typeof obj.description === "string" &&
-    obj.description.trim().length > 0 &&
-    (obj.resolve === "ai" || obj.resolve === "deterministic")
-  );
+const parsePrimitiveFrontmatterValue = (value: string): unknown => {
+  const raw = value.trim();
+  if (!raw) return "";
+
+  if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+    return raw.slice(1, -1);
+  }
+
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+
+  if (/^-?\d+$/.test(raw)) {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  if (raw.startsWith("[") && raw.endsWith("]")) {
+    const inner = raw.slice(1, -1).trim();
+    if (!inner) return [];
+    return inner
+      .split(",")
+      .map((item) => parsePrimitiveFrontmatterValue(item.trim()))
+      .filter((item) => typeof item === "string" && item.length > 0);
+  }
+
+  return raw;
+};
+
+const splitFrontmatter = (raw: string): { frontmatter: string; body: string } => {
+  const normalized = raw.replace(/^\uFEFF/, "");
+  const match = normalized.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
+  if (!match) {
+    return { frontmatter: "", body: normalized };
+  }
+
+  return {
+    frontmatter: match[1] ?? "",
+    body: match[2] ?? ""
+  };
+};
+
+const parseFrontmatterObject = (raw: string): Record<string, unknown> => {
+  if (!raw.trim()) return {};
+
+  const output: Record<string, unknown> = {};
+  let activeArrayKey: string | null = null;
+
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    if (activeArrayKey && trimmed.startsWith("- ")) {
+      const next = parsePrimitiveFrontmatterValue(trimmed.slice(2).trim());
+      if (typeof next === "string" && next.length > 0) {
+        (output[activeArrayKey] as string[]).push(next);
+      }
+      continue;
+    }
+
+    const kv = trimmed.match(/^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$/);
+    if (!kv) {
+      activeArrayKey = null;
+      continue;
+    }
+
+    const key = kv[1]!;
+    const valueRaw = kv[2] ?? "";
+    if (!valueRaw.trim()) {
+      output[key] = [];
+      activeArrayKey = key;
+      continue;
+    }
+
+    output[key] = parsePrimitiveFrontmatterValue(valueRaw);
+    activeArrayKey = null;
+  }
+
+  return output;
+};
+
+const toStringArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
 };
 
 /**
- * Synchronously load all `*.json` skill files from a directory.
+ * Synchronously load all `*.md` context modules from a directory.
  *
- * Each file may contain a single SkillSchema object or an array of them.
- * Files that fail to parse or have invalid shapes are skipped with a warning.
- * Returns an empty array when the directory does not exist.
+ * Supports optional YAML-like frontmatter:
  *
- * @example
- * ```typescript
- * // game/index.ts
- * import { defineGameModule, loadSkillsDirSync } from "@opendungeon/content-sdk";
+ * ---
+ * id: trading
+ * priority: 80
+ * alwaysInclude: false
+ * triggers:
+ *   - buy
+ *   - sell
+ * ---
  *
- * export default defineGameModule({
- *   skills: loadSkillsDirSync(new URL("./skills", import.meta.url).pathname),
- *   // ...
- * });
- * ```
+ * If no frontmatter id is provided, filename (without extension) is used.
  */
-export const loadSkillsDirSync = (dirPath: string): SkillSchema[] => {
+export const loadContextModulesDirSync = (dirPath: string): DungeonMasterContextModule[] => {
   let files: string[];
   try {
     files = readdirSync(dirPath);
@@ -56,33 +139,48 @@ export const loadSkillsDirSync = (dirPath: string): SkillSchema[] => {
     return [];
   }
 
-  const results: SkillSchema[] = [];
+  const results: DungeonMasterContextModule[] = [];
 
   for (const file of files) {
-    if (!file.endsWith(".json")) continue;
+    if (!file.endsWith(".md")) continue;
 
     const fullPath = join(dirPath, file);
-    let raw: unknown;
-
+    let raw: string;
     try {
-      raw = JSON.parse(readFileSync(fullPath, "utf8"));
+      raw = readFileSync(fullPath, "utf8");
     } catch (err) {
-      console.warn(`[content-sdk] Failed to parse skill file "${file}": ${String(err)}`);
+      console.warn(`[content-sdk] Failed to read context module "${file}": ${String(err)}`);
       continue;
     }
 
-    const items = Array.isArray(raw) ? raw : [raw];
+    const { frontmatter, body } = splitFrontmatter(raw);
+    const parsed = parseFrontmatterObject(frontmatter);
 
-    for (const item of items) {
-      if (isSkillSchema(item)) {
-        results.push(item);
-      } else {
-        console.warn(
-          `[content-sdk] Skipping invalid skill in "${file}" — ` +
-            `must have string "id", "description", and resolve: "ai" | "deterministic".`
-        );
-      }
+    const idFromMeta = typeof parsed.id === "string" ? parsed.id.trim() : "";
+    const fallbackId = file.replace(/\.md$/, "");
+    const id = idFromMeta || fallbackId;
+    const content = body.trim();
+
+    if (!content) {
+      console.warn(`[content-sdk] Skipping empty context module "${file}".`);
+      continue;
     }
+
+    const module: DungeonMasterContextModule = {
+      id,
+      content,
+      file,
+      triggers: toStringArray(parsed.triggers)
+    };
+
+    if (typeof parsed.priority === "number") {
+      module.priority = parsed.priority;
+    }
+    if (typeof parsed.alwaysInclude === "boolean") {
+      module.alwaysInclude = parsed.alwaysInclude;
+    }
+
+    results.push(module);
   }
 
   return results;
@@ -273,6 +371,10 @@ export const loadDmConfigFileSync = (filePath: string): DungeonMasterModuleConfi
   const dirPath = filePath.replace(/[/\\][^/\\]+$/, "");
   const mdPath = join(dirPath, "dm.md");
   const mdPrompt = loadDmPromptFileSync(mdPath);
+  const contextModules = [
+    ...loadContextModulesDirSync(join(dirPath, "modules")),
+    ...loadContextModulesDirSync(join(dirPath, "contexts"))
+  ];
 
   let jsonConfig: ReturnType<typeof dmConfigFileSchema.parse> | null = null;
   try {
@@ -281,14 +383,14 @@ export const loadDmConfigFileSync = (filePath: string): DungeonMasterModuleConfi
     jsonConfig = dmConfigFileSchema.parse(parsed);
   } catch (err: unknown) {
     // If file doesn't exist, that's fine — we may still have dm.md
-    if (mdPrompt === null) return null;
+    if (mdPrompt === null && contextModules.length === 0) return null;
     // If file exists but is invalid JSON/schema, throw
     if (err instanceof Error && !("code" in err && (err as NodeJS.ErrnoException).code === "ENOENT")) {
       throw err;
     }
   }
 
-  if (!jsonConfig && !mdPrompt) return null;
+  if (!jsonConfig && !mdPrompt && contextModules.length === 0) return null;
 
   const config: DungeonMasterModuleConfig = {};
 
@@ -309,6 +411,13 @@ export const loadDmConfigFileSync = (filePath: string): DungeonMasterModuleConfi
   }
   if (jsonConfig?.defaultSuggestedActions) {
     config.defaultSuggestedActions = jsonConfig.defaultSuggestedActions;
+  }
+  const jsonConfigRecord = jsonConfig as Record<string, unknown> | null;
+  if (jsonConfigRecord && typeof jsonConfigRecord.contextRouter === "object" && jsonConfigRecord.contextRouter) {
+    config.contextRouter = jsonConfigRecord.contextRouter as DungeonMasterModuleConfig["contextRouter"];
+  }
+  if (contextModules.length > 0) {
+    config.contextModules = contextModules;
   }
 
   return config;
@@ -339,117 +448,6 @@ export const loadInitialStateFileSync = (filePath: string): Record<string, unkno
 
   const parsed = JSON.parse(raw);
   return initialStateFileSchema.parse(parsed);
-};
-
-/**
- * Synchronously load all `*.json` hook files from a directory.
- *
- * Each file must contain a single HookSchema object.
- * Files that fail to parse or have invalid shapes are skipped with a warning.
- * Returns an empty array when the directory does not exist.
- *
- * @example
- * ```typescript
- * import { hookSchemasToMechanics } from "@opendungeon/engine-core";
- *
- * const hookSchemas = loadHooksDirSync(new URL("../hooks", import.meta.url).pathname);
- * export default defineGameModule({
- *   mechanics: [...hookSchemasToMechanics(hookSchemas), myMechanic],
- *   // ...
- * });
- * ```
- */
-export const loadHooksDirSync = (dirPath: string): HookSchema[] => {
-  let files: string[];
-  try {
-    files = readdirSync(dirPath);
-  } catch {
-    return [];
-  }
-
-  const results: HookSchema[] = [];
-
-  for (const file of files) {
-    if (!file.endsWith(".json")) continue;
-
-    const fullPath = join(dirPath, file);
-    let raw: unknown;
-
-    try {
-      raw = JSON.parse(readFileSync(fullPath, "utf8"));
-    } catch (err) {
-      console.warn(`[content-sdk] Failed to parse hook file "${file}": ${String(err)}`);
-      continue;
-    }
-
-    const parsed = hookSchema.safeParse(raw);
-    if (parsed.success) {
-      results.push(parsed.data);
-    } else {
-      console.warn(
-        `[content-sdk] Skipping invalid hook in "${file}" — ` +
-          `must have string "id" and hook: "onCharacterCreated"|"onSessionStart"|"onSessionEnd". ` +
-          `Error: ${parsed.error.message}`
-      );
-    }
-  }
-
-  return results;
-};
-
-/**
- * Synchronously load all `*.json` rule files from a directory.
- *
- * Each file must contain a single RuleSchema object.
- * Files that fail to parse or have invalid shapes are skipped with a warning.
- * Returns an empty array when the directory does not exist.
- *
- * @example
- * ```typescript
- * import { ruleSchemasToMechanics } from "@opendungeon/content-sdk";
- *
- * const ruleSchemas = loadRulesDirSync(new URL("../rules", import.meta.url).pathname);
- * export default defineGameModule({
- *   mechanics: [...hookSchemasToMechanics(hookSchemas), ...ruleSchemasToMechanics(ruleSchemas)],
- * });
- * ```
- */
-export const loadRulesDirSync = (dirPath: string): RuleSchema[] => {
-  let files: string[];
-  try {
-    files = readdirSync(dirPath);
-  } catch {
-    return [];
-  }
-
-  const results: RuleSchema[] = [];
-
-  for (const file of files) {
-    if (!file.endsWith(".json")) continue;
-
-    const fullPath = join(dirPath, file);
-    let raw: unknown;
-
-    try {
-      raw = JSON.parse(readFileSync(fullPath, "utf8"));
-    } catch (err) {
-      console.warn(`[content-sdk] Failed to parse rule file "${file}": ${String(err)}`);
-      continue;
-    }
-
-    const parsed = ruleSchema.safeParse(raw);
-    if (parsed.success) {
-      results.push(parsed.data);
-    } else {
-      console.warn(
-        `[content-sdk] Skipping invalid rule in "${file}" — ` +
-          `must have "id", trigger: "onActionResolved", and at least one effect. ` +
-          `Error: ${parsed.error.message}`
-      );
-    }
-  }
-
-  return results;
 };
 
 export const loadLoreFilesSync = (dirPath: string): Array<{ file: string; content: string }> => {

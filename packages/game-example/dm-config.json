@@ -1,4 +1,10 @@
 {
+  "contextRouter": {
+    "enabled": true,
+    "contextTokenBudget": 1200,
+    "maxCandidates": 8,
+    "maxSelectedModules": 5
+  },
   "toolPolicy": {
     "allowedTools": ["update_world_state", "set_summary", "set_suggested_actions"],
     "requireSummary": true,

@@ -203,6 +203,12 @@ Controls how the DM responds: which tools it can use, output limits, default act
 
 ```json
 {
+  "contextRouter": {
+    "enabled": true,
+    "contextTokenBudget": 1200,
+    "maxCandidates": 8,
+    "maxSelectedModules": 4
+  },
   "toolPolicy": {
     "allowedTools": ["update_world_state", "set_summary", "set_suggested_actions"],
     "requireSummary": true,
@@ -223,7 +229,52 @@ Controls how the DM responds: which tools it can use, output limits, default act
 
 All fields are optional. The engine uses sensible defaults when `dm-config.json` is absent.
 
+`contextRouter` controls per-turn selection of Markdown context modules:
+- `enabled` — default router state in config.
+- `contextTokenBudget` — global token budget for all selected modules in one turn.
+- `maxCandidates` — max modules after keyword pre-filter.
+- `maxSelectedModules` — hard cap of selected modules included into DM prompt.
+
+Environment flag override:
+- `DM_CONTEXT_ROUTER_ENABLED=true` forces router on.
+- `DM_CONTEXT_ROUTER_ENABLED=false` (or unset with `enabled: false`) keeps router off.
+
 > Note: `suggestedActionStrategy` (a dynamic TypeScript function for computed action buttons) is not supported in JSON. If you need it, use TypeScript mode instead.
+
+---
+
+### `modules/*.md` or `contexts/*.md` — routed DM context modules
+
+Use Markdown files for focused gameplay instructions that should be included only when relevant.
+
+Each module supports optional frontmatter:
+
+```markdown
+---
+id: trading
+priority: 80
+alwaysInclude: false
+triggers:
+  - buy
+  - sell
+  - merchant
+---
+
+## Trading Rules
+- Let players negotiate prices with merchants.
+- Better terms require leverage, reputation, or strong roleplay.
+```
+
+Frontmatter fields:
+- `id` (string, optional) — stable module id. If omitted, filename is used.
+- `priority` (number, optional) — higher priority wins during ranking.
+- `alwaysInclude` (boolean, optional) — always include this module before optional modules.
+- `triggers` (string[], optional) — keywords for fast pre-filter before LLM selection.
+
+Notes:
+- Store modules in either `modules/` or `contexts/` near `dm-config.json`.
+- Do not set per-module token limits; router uses the global `contextTokenBudget`.
+- Keep modules short and narrowly scoped to one mechanic/domain.
 
 ---
 

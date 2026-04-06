@@ -14,7 +14,7 @@ Your game is a separate package (or folder) that you plug into the engine. The e
 
 ```
 OpenDungeon engine  ←  your-game/
-   (this repo)            skills/         ← JSON rules, no code needed
+   (this repo)            modules/        ← Routed Markdown gameplay context
                           src/mechanics/  ← TypeScript for complex logic
                           src/index.ts    ← exports defineGameModule(...)
 ```
@@ -47,40 +47,54 @@ Your selected game module will be prepared in the `games/` directory. Open `http
 
 ## Building a game
 
-OpenDungeon supports **AI-native declarative skills**. Game modules live in the `games/` directory (ignored by git), allowing you to evolve your game independently of the engine:
+OpenDungeon supports a **content-first control plane**: routed markdown context modules + deterministic TypeScript mechanics. Game modules live in the `games/` directory (ignored by git), allowing you to evolve your game independently of the engine:
 
 1. Run `pnpm od setup` and choose "Create a clean project" (e.g., `game-my-adventure`).
 2. Your project is created in `games/game-my-adventure/`.
-3. Drop a JSON file into your game's `skills/` folder:
+3. Add markdown guidance modules to your game's `modules/` folder:
 
 
 ```json
-// skills/bargain.json
+// dm-config.json
 {
-  "id": "bargain",
-  "description": "Negotiate prices or terms with an NPC",
-  "resolve": "ai",
-  "dmPromptExtension": "## Bargaining\nPlayers can haggle. Track result in worldPatch: merchantRelation (+1/-1)."
+  "contextRouter": {
+    "enabled": true,
+    "contextTokenBudget": 1200,
+    "maxCandidates": 8,
+    "maxSelectedModules": 4
+  }
 }
 ```
 
-Restart the engine — the skill is live. The DM now knows this mechanic exists and will invoke it when the player tries to negotiate, regardless of how they phrase it.
+```markdown
+---
+id: bargain
+priority: 80
+triggers:
+  - bargain
+  - haggle
+---
 
-For more control, use `resolve: "deterministic"` with a fixed outcome:
+## Bargaining
+- Players can negotiate prices and terms with NPCs.
+- Update world state with concrete relation/economy outcomes.
+```
 
-```json
-// skills/rest.json
-{
-  "id": "rest",
-  "description": "Rest at a campfire to recover",
-  "resolve": "deterministic",
-  "validate": { "worldStateKey": "campfireActive", "failMessage": "No campfire nearby." },
-  "outcome": {
-    "message": "You rest by the fire and recover your strength.",
-    "worldPatch": { "campfireActive": false },
-    "characterPatch": { "hp": 100 }
+Restart the engine — the module is live. The router now includes this context when relevant.
+
+For exact logic, use TypeScript mechanics with deterministic actions:
+
+```ts
+export const campMechanic = defineMechanic({
+  id: "camp",
+  actions: {
+    rest: {
+      description: "Rest at a campfire to recover",
+      validate: (ctx) => ctx.worldState.campfireActive ? true : "No campfire nearby.",
+      resolve: async () => ({ message: "You rest by the fire and recover your strength." })
+    }
   }
-}
+});
 ```
 
 For stateful cross-session logic, write a TypeScript mechanic. See [Creating a Game](docs/creating-a-game.md) and [Mechanics](docs/mechanics.md).

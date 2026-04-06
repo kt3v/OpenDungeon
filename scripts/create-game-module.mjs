@@ -209,10 +209,8 @@ const createModuleFiles = ({ absTargetDir, packageName, contentSdkDependency, ty
           "dm.md",
           "dm-config.json",
           "initial-state.json",
-          "skills",
+          "modules",
           "resources",
-          "hooks",
-          "rules",
           "lore"
         ],
         scripts: {
@@ -238,10 +236,8 @@ const createModuleFiles = ({ absTargetDir, packageName, contentSdkDependency, ty
           "dm.md",
           "dm-config.json",
           "initial-state.json",
-          "skills",
+          "modules",
           "resources",
-          "hooks",
-          "rules",
           "lore"
         ]
       };
@@ -311,6 +307,12 @@ Optional keys: toolCalls, worldPatch, summaryPatch, suggestedActions.
 `;
 
   const dmConfigJson = {
+    contextRouter: {
+      enabled: true,
+      contextTokenBudget: 1200,
+      maxCandidates: 8,
+      maxSelectedModules: 4
+    },
     toolPolicy: {
       allowedTools: ["update_world_state", "set_summary", "set_suggested_actions"],
       requireSummary: true,
@@ -329,12 +331,21 @@ Optional keys: toolCalls, worldPatch, summaryPatch, suggestedActions.
 
   const initialStateJson = {};
 
-  const lookSkill = {
-    id: "look",
-    description: "Observe your immediate surroundings",
-    dmPromptExtension: "When the player looks around, the DM describes the current location in vivid detail.",
-    resolve: "ai"
-  };
+  const explorationModule = `---
+id: exploration
+priority: 90
+alwaysInclude: true
+triggers:
+  - look
+  - inspect
+  - explore
+---
+
+## Exploration Guidance
+- Keep descriptions grounded in current location and recent state changes.
+- Surface actionable details, not only atmosphere.
+- Update world state only with concrete, discoverable facts.
+`;
 
   const hpResource = {
     id: "hp",
@@ -351,15 +362,6 @@ Optional keys: toolCalls, worldPatch, summaryPatch, suggestedActions.
     stateKey: "location",
     type: "text",
     defaultValue: "Unknown"
-  };
-
-  const startingGearHook = {
-    id: "starting-gear",
-    hook: "onCharacterCreated",
-    characterPatch: {
-      location: "start",
-      inventory: []
-    }
   };
 
   const loreReadme = `# Lore Files
@@ -382,7 +384,7 @@ import { myMechanic } from "./mechanics/my-mechanic.js";
 /**
  * TypeScript extension for ${packageName}.
  *
- * All module data (classes, DM config, setting, skills, resources)
+ * All module data (classes, DM config, setting, context modules, resources)
  * is loaded from JSON/Markdown files in the module root.
  *
  * This file only exports additional mechanics that implement complex,
@@ -403,7 +405,6 @@ export default defineMechanics({
  * Mechanics can:
  * - React to lifecycle hooks (onCharacterCreated, onSessionStart, onActionResolved, onSessionEnd)
  * - Define deterministic actions (validate + resolve)
- * - Inject context into DM prompts via dmPromptExtension
  */
 export const myMechanic = defineMechanic({
   id: "my-mechanic",
@@ -417,10 +418,6 @@ export const myMechanic = defineMechanic({
         }
       };
     }
-  },
-
-  dmPromptExtension: ({ worldState }) => {
-    return "Custom mechanic context for the DM.";
   }
 });
 `
@@ -451,15 +448,13 @@ ${typescript ? "After editing TypeScript files, run `pnpm build` to recompile." 
 ├── dm.md                 # DM system prompt (Markdown)
 ├── dm-config.json        # DM guardrails, tool policy, default actions
 ├── initial-state.json    # Starting worldState for new campaigns
+├── modules/              # Routed Markdown context modules
+│   └── exploration.md
 ├── lore/                 # Markdown lore files
 │   └── README.md
-├── skills/               # Declarative JSON skills
-│   └── look.json
 ├── resources/            # UI resource indicators
 │   ├── hp.json
 │   └── location.json
-├── hooks/                # Declarative mechanic hooks
-│   └── starting-gear.json
 ${typescript ? `├── src/                  # TypeScript mechanics (optional)
 │   ├── index.ts          # Entry point — exports mechanics only
 │   └── mechanics/
@@ -468,39 +463,20 @@ ${typescript ? `├── src/                  # TypeScript mechanics (optional
 
 ## Adding Gameplay
 
-### Skills (skills/*.json)
-Drop JSON files — picked up automatically:
-\`\`\`json
-{
-  "id": "rest",
-  "description": "Rest to recover",
-  "resolve": "deterministic",
-  "outcome": { "message": "You rest.", "characterPatch": { "rested": true } }
-}
-\`\`\`
+### Context Modules (modules/*.md)
+Store gameplay and narrative guidance in routed Markdown modules:
+\`\`\`markdown
+---
+id: stamina
+priority: 80
+triggers:
+  - run
+  - sprint
+---
 
-### Hooks (hooks/*.json)
-Set initial state or react to session events:
-\`\`\`json
-{
-  "id": "warrior-start",
-  "hook": "onCharacterCreated",
-  "classBranches": {
-    "Warrior": { "characterPatch": { "gold": 5 } },
-    "Mage": { "characterPatch": { "gold": 10 } }
-  }
-}
-\`\`\`
-
-### Rules (rules/*.json)
-Apply effects after every action — drain HP, tick timers, check death:
-\`\`\`json
-{
-  "id": "poison-tick",
-  "trigger": "onActionResolved",
-  "condition": { "key": "characterState.poisoned", "operator": "==", "value": true },
-  "effects": [{ "op": "decrement", "target": "characterState.hp", "amount": 3, "min": 0 }]
-}
+## Stamina Guidance
+- Running drains stamina over time.
+- If stamina is low, reflect fatigue in narrative and suggested actions.
 \`\`\`
 
 ${typescript ? `### TypeScript Mechanics (src/mechanics/*.ts)
@@ -536,10 +512,9 @@ See the [game-example](../packages/game-example/) for a reference implementation
     { path: resolve(absTargetDir, "dm.md"), content: dmMd },
     { path: resolve(absTargetDir, "dm-config.json"), content: JSON.stringify(dmConfigJson, null, 2) + "\n" },
     { path: resolve(absTargetDir, "initial-state.json"), content: JSON.stringify(initialStateJson, null, 2) + "\n" },
-    { path: resolve(absTargetDir, "skills/look.json"), content: JSON.stringify(lookSkill, null, 2) + "\n" },
+    { path: resolve(absTargetDir, "modules/exploration.md"), content: explorationModule },
     { path: resolve(absTargetDir, "resources/hp.json"), content: JSON.stringify(hpResource, null, 2) + "\n" },
     { path: resolve(absTargetDir, "resources/location.json"), content: JSON.stringify(locationResource, null, 2) + "\n" },
-    { path: resolve(absTargetDir, "hooks/starting-gear.json"), content: JSON.stringify(startingGearHook, null, 2) + "\n" },
     { path: resolve(absTargetDir, "lore/README.md"), content: loreReadme }
   ];
 
@@ -560,9 +535,8 @@ See the [game-example](../packages/game-example/) for a reference implementation
   }
 
   // Create directories
-  mkdirSync(resolve(absTargetDir, "skills"), { recursive: true });
+  mkdirSync(resolve(absTargetDir, "modules"), { recursive: true });
   mkdirSync(resolve(absTargetDir, "resources"), { recursive: true });
-  mkdirSync(resolve(absTargetDir, "hooks"), { recursive: true });
   mkdirSync(resolve(absTargetDir, "lore"), { recursive: true });
   if (typescript) {
     mkdirSync(resolve(absTargetDir, "src"), { recursive: true });

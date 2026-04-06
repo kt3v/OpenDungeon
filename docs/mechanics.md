@@ -1,15 +1,35 @@
 # Mechanics
 
-There are four ways to add gameplay to your OpenDungeon game, in order of complexity:
+> **vNext architecture (breaking change):** gameplay no longer runs through `skills/*.json`, `hooks/*.json`, or `rules/*.json`.
+> Use routed Markdown context modules (`modules/*.md` / `contexts/*.md`) for narrative/gameplay guidance,
+> and TypeScript mechanics (`src/mechanics/*.ts`) for deterministic logic.
 
-1. **JSON skills** (`skills/*.json`) — gameplay rules and DM instructions
-2. **JSON hooks** (`hooks/*.json`) — initial state setup and session lifecycle
-3. **JSON rules** (`rules/*.json`) — effects applied after every action (HP drain, timers, death checks)
-4. **TypeScript mechanics** (`src/mechanics/*.ts`) — complex stateful logic
+## Control Plane
 
-Start with JSON. You can always promote to TypeScript when the logic outgrows what files can express.
+- `modules/*.md` + `dm.md`: LLM context and narrative policy (selected per turn by router)
+- `src/mechanics/*.ts`: deterministic actions and lifecycle hooks executed by `EngineRuntime`
+- `EngineRuntime`: orchestration authority (routing, execution order, patch merging)
+- `Archivist`: post-DM curation stage for structured world/summary patch normalization
+
+## Migration Note
+
+If you still have legacy `skills`, `hooks`, or `rules` files, treat them as deprecated content and migrate behavior to:
+- markdown modules for instruction/context,
+- TypeScript mechanics for exact state transitions.
+
+Gameplay now uses two primary layers:
+
+1. **Markdown context modules** (`modules/*.md` / `contexts/*.md`) — guidance, policy, and narrative rules selected by router.
+2. **TypeScript mechanics** (`src/mechanics/*.ts`) — deterministic actions and lifecycle hooks executed by runtime.
+
+Use Markdown for flexible content behavior and TypeScript whenever correctness or branching rules must be exact.
 
 ---
+
+## Legacy Reference: Skills/Hooks/Rules (Deprecated)
+
+> The sections below describe the pre-vNext system and are kept only for migration reference.
+> New modules should not use these formats.
 
 ## Skills (JSON)
 

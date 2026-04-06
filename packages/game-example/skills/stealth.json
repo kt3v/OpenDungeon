@@ -1,6 +1,0 @@
-{
-  "id": "stealth",
-  "description": "Attempt to move silently or hide from enemies",
-  "resolve": "ai",
-  "dmPromptExtension": "## Stealth Rules\n- Players can attempt to hide or move silently at any time.\n- Success depends on their surroundings, noise level, and enemy alertness.\n- On success: set `stealthActive: true` in worldPatch.\n- On failure or combat: set `stealthActive: false` in worldPatch.\n- Stealth breaks if the player attacks or makes loud noise."
-}

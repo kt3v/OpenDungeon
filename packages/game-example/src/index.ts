@@ -5,7 +5,7 @@ import { locationMechanic } from "./mechanics/location.js";
 /**
  * TypeScript extension for OpenDungeon Classic.
  *
- * All other module data (classes, DM config, setting, skills, resources)
+ * All other module data (classes, DM config, setting, context modules, resources)
  * is loaded from JSON/Markdown files in the module root.
  *
  * This file only exports additional mechanics that implement complex,

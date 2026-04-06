@@ -14,10 +14,7 @@
  *   dm.md               — DM system prompt (markdown)
  *   dm-config.json      — DM guardrails, tool policy, default actions
  *   initial-state.json  — initial worldState for new campaigns
- *   skills/*.json       — declarative skills
  *   resources/*.json    — UI resource indicators
- *   hooks/*.json        — declarative mechanic hooks (onCharacterCreated, etc.)
- *   rules/*.json        — declarative rules (onActionResolved effects)
  */
 
 import { readFileSync } from "node:fs";
@@ -30,22 +27,16 @@ import type {
   SettingConfig,
   DungeonMasterModuleConfig,
   GameModuleSetting,
-  SkillSchema,
   ResourceSchema,
   Mechanic
 } from "./index.js";
 import {
-  loadSkillsDirSync,
   loadLoreFilesSync,
   loadResourcesDirSync,
   loadClassesFileSync,
   loadDmConfigFileSync,
-  loadInitialStateFileSync,
-  loadHooksDirSync,
-  loadRulesDirSync
+  loadInitialStateFileSync
 } from "./node-utils.js";
-import { hookSchemasToMechanics } from "./hook-loader.js";
-import { ruleSchemasToMechanics } from "./rule-loader.js";
 
 const FALLBACK_CLASS: CharacterTemplate = { level: 1, hp: 100 };
 const FALLBACK_CLASS_NAME = "Adventurer";
@@ -72,7 +63,6 @@ export interface DeclarativeModuleBase {
   };
   dm: DungeonMasterModuleConfig;
   setting?: GameModuleSetting;
-  skills?: SkillSchema[];
   resources?: ResourceSchema[];
 }
 
@@ -85,8 +75,8 @@ export interface DeclarativeBaseResult {
 /**
  * Load a GameModule entirely from declarative files in a directory.
  *
- * The returned GameModule has `mechanics: []` — TypeScript mechanics require
- * a compiled entry point. Use hooks/*.json for initialisation logic instead.
+ * The returned GameModule has `mechanics: []` — gameplay logic is expected
+ * to be provided via TypeScript mechanics from a compiled entry point.
  *
  * @param modulePath Absolute path to the game module directory.
  */
@@ -137,19 +127,8 @@ export const loadDeclarativeGameModule = (modulePath: string): DeclarativeModule
   // ── initial-state.json (optional) ────────────────────────────────────────
   const initialState = loadInitialStateFileSync(join(modulePath, "initial-state.json")) ?? {};
 
-  // ── skills/*.json (optional) ─────────────────────────────────────────────
-  const skills = loadSkillsDirSync(join(modulePath, "skills"));
-
   // ── resources/*.json (optional) ──────────────────────────────────────────
   const resources = loadResourcesDirSync(join(modulePath, "resources"));
-
-  // ── hooks/*.json → Mechanic[] ─────────────────────────────────────────────
-  const hookSchemas = loadHooksDirSync(join(modulePath, "hooks"));
-  const hookMechanics = hookSchemasToMechanics(hookSchemas);
-
-  // ── rules/*.json → Mechanic[] ─────────────────────────────────────────────
-  const ruleSchemas = loadRulesDirSync(join(modulePath, "rules"));
-  const ruleMechanics = ruleSchemasToMechanics(ruleSchemas);
 
   const gameModule: GameModule = {
     manifest,
@@ -165,8 +144,7 @@ export const loadDeclarativeGameModule = (modulePath: string): DeclarativeModule
       settingConfig || loreFiles.length > 0
         ? { config: settingConfig, loreFiles }
         : undefined,
-    mechanics: [...hookMechanics, ...ruleMechanics],
-    skills: skills.length > 0 ? skills : undefined,
+    mechanics: [],
     resources: resources.length > 0 ? resources : undefined
   };
 
@@ -225,19 +203,8 @@ export const loadDeclarativeModuleBase = (modulePath: string): DeclarativeBaseRe
   // ── initial-state.json (optional) ────────────────────────────────────────
   const initialState = loadInitialStateFileSync(join(modulePath, "initial-state.json")) ?? {};
 
-  // ── skills/*.json (optional) ─────────────────────────────────────────────
-  const skills = loadSkillsDirSync(join(modulePath, "skills"));
-
   // ── resources/*.json (optional) ──────────────────────────────────────────
   const resources = loadResourcesDirSync(join(modulePath, "resources"));
-
-  // ── hooks/*.json → Mechanic[] ─────────────────────────────────────────────
-  const hookSchemas = loadHooksDirSync(join(modulePath, "hooks"));
-  const hookMechanics = hookSchemasToMechanics(hookSchemas);
-
-  // ── rules/*.json → Mechanic[] ─────────────────────────────────────────────
-  const ruleSchemas = loadRulesDirSync(join(modulePath, "rules"));
-  const ruleMechanics = ruleSchemasToMechanics(ruleSchemas);
 
   const base: DeclarativeModuleBase = {
     manifest,
@@ -253,11 +220,10 @@ export const loadDeclarativeModuleBase = (modulePath: string): DeclarativeBaseRe
       settingConfig || loreFiles.length > 0
         ? { config: settingConfig, loreFiles }
         : undefined,
-    skills: skills.length > 0 ? skills : undefined,
     resources: resources.length > 0 ? resources : undefined
   };
 
-  const mechanics = [...hookMechanics, ...ruleMechanics];
+  const mechanics: Mechanic[] = [];
 
   return { base, mechanics, warnings };
 };

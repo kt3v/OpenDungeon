@@ -1,6 +1,0 @@
-{
-  "id": "listen",
-  "description": "Listen carefully to detect sounds in the surroundings",
-  "resolve": "ai",
-  "dmPromptExtension": "## Sound Awareness\n- Last heard: {{worldState.lastSound}}\nWhen the player listens, describe ambient sounds appropriate to their location. Set `lastSound` in worldPatch with a short key (e.g. \"footsteps_beyond_door\", \"dripping_water\")."
-}

@@ -1,6 +1,0 @@
-{
-  "id": "look",
-  "description": "Observe and describe the immediate surroundings in detail",
-  "resolve": "ai",
-  "dmPromptExtension": "## Exploration State\n- Current location: {{worldState.location}}\n- Last observed: {{worldState.lastObservation}}\n- Last heard: {{worldState.lastSound}}\nWhen the player looks around, describe the environment vividly based on their location. Set `lastObservation` in worldPatch with a short key describing what was found (e.g. \"iron_door\", \"treasure_chest\")."
-}

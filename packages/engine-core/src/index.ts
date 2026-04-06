@@ -17,11 +17,13 @@ import type { SessionEndReason } from "@opendungeon/shared";
 import { moduleManifestSchema } from "@opendungeon/shared";
 import { createProviderFromEnv, type LlmProvider } from "@opendungeon/providers-llm";
 import { DungeonMasterRuntime } from "./dungeon-master.js";
-import { skillSchemasToMechanic } from "./skill-loader.js";
+import { ContextRouterRuntime, type RouterConfig, type RouterContextModule } from "./context-router.js";
+import { ArchivistRuntime } from "./archivist.js";
 
 export { DungeonMasterRuntime } from "./dungeon-master.js";
-export { skillSchemasToMechanic, SKILLS_MECHANIC_ID } from "./skill-loader.js";
 export type { DmTurnInput, DmTurnResult, DungeonMasterRuntimeOptions } from "./dungeon-master.js";
+export { ArchivistRuntime } from "./archivist.js";
+export type { ArchivistTurnInput, ArchivistTurnResult } from "./archivist.js";
 
 export { extractLore, type LoreEntryPayload } from "./lore-extractor.js";
 export { compressSessionHistory } from "./event-compressor.js";
@@ -98,25 +100,23 @@ export interface EngineRuntimeOptions {
 export class EngineRuntime {
   private readonly gameModule: GameModule;
   private readonly dmRuntime: DungeonMasterRuntime;
-  /** Effective mechanics list: TypeScript mechanics + compiled skill schemas. */
+  private readonly contextRouterRuntime: ContextRouterRuntime;
+  private readonly archivistRuntime: ArchivistRuntime;
+  /** Effective mechanics list: TypeScript mechanics only. */
   private readonly mechanics: Mechanic[];
 
   constructor(gameModule: GameModule, options: EngineRuntimeOptions = {}) {
     moduleManifestSchema.parse(gameModule.manifest);
     this.gameModule = gameModule;
-
-    const skillsMechanic = gameModule.skills?.length
-      ? skillSchemasToMechanic(gameModule.skills)
-      : null;
-    this.mechanics = skillsMechanic
-      ? [...gameModule.mechanics, skillsMechanic]
-      : gameModule.mechanics;
+    this.mechanics = gameModule.mechanics;
 
     const provider = options.provider ?? createProviderFromEnv();
     this.dmRuntime = new DungeonMasterRuntime({
       provider,
       moduleConfig: gameModule.dm
     });
+    this.contextRouterRuntime = new ContextRouterRuntime(provider);
+    this.archivistRuntime = new ArchivistRuntime(provider);
   }
 
   // -------------------------------------------------------------------------
@@ -317,7 +317,12 @@ export class EngineRuntime {
     input: ExecuteTurnInput,
     ctx: ActionContext
   ): Promise<ActionResult> {
-    const systemPrompt = this.buildSystemPrompt(ctx.worldState, input.campaignTitle, input.playerLanguage);
+    const systemPrompt = await this.buildSystemPrompt(
+      ctx.worldState,
+      input.actionText,
+      input.campaignTitle,
+      input.playerLanguage
+    );
 
     const availableMechanicActions = this.mechanics.flatMap((m) =>
       Object.entries(m.actions ?? {}).map(([actionId, actionDef]) => ({
@@ -355,11 +360,26 @@ export class EngineRuntime {
         // Unknown mechanic id — fall through to DM narrative
       }
 
-      return {
+      const dmNarrativeResult: ActionResult = {
         message: dmResult.message,
         worldPatch: dmResult.worldPatch,
         summaryPatch: dmResult.summaryPatch,
         suggestedActions: dmResult.suggestedActions
+      };
+
+      const archivistResult = await this.archivistRuntime.runTurn({
+        actionText: input.actionText,
+        worldState: input.worldState,
+        dmResult: dmNarrativeResult
+      });
+
+      return {
+        ...dmNarrativeResult,
+        worldPatch: {
+          ...(dmNarrativeResult.worldPatch ?? {}),
+          ...(archivistResult.worldPatch ?? {})
+        },
+        summaryPatch: archivistResult.summaryPatch ?? dmNarrativeResult.summaryPatch
       };
     } catch {
       // Graceful fallback if DM fails
@@ -374,14 +394,15 @@ export class EngineRuntime {
    * Build the final DM system prompt by combining:
    * 1. Setting / world bible (if defined)
    * 2. Module base prompt (promptTemplate or systemPrompt)
-   * 3. Each mechanic's dmPromptExtension
+   * 3. Routed markdown context modules
    * 4. Player language preference instruction
    */
-  private buildSystemPrompt(
+  private async buildSystemPrompt(
     worldState: Record<string, unknown>,
+    actionText: string,
     campaignTitle?: string,
     playerLanguage?: string
-  ): string {
+  ): Promise<string> {
     const { dm, setting } = this.gameModule;
 
     // Section 1: Setting / World Bible
@@ -401,11 +422,14 @@ export class EngineRuntime {
       ].join("\n");
     }
 
-    // Section 3: Mechanic extensions
-    const extensions = this.mechanics
-      .filter((m) => typeof m.dmPromptExtension === "function")
-      .map((m) => m.dmPromptExtension!({ worldState }))
-      .filter(Boolean);
+    // Section 3: Context modules routed per turn
+    const routedModules = await this.resolveRoutedContextModules({ actionText, worldState });
+    const modulesSection = routedModules.length > 0
+      ? [
+          "## Active Context Modules",
+          ...routedModules.map((module) => `### ${module.id}\n${module.content}`)
+        ].join("\n\n")
+      : "";
 
     // Section 4: Language instruction
     let languageSection = "";
@@ -419,9 +443,87 @@ export class EngineRuntime {
     const parts: string[] = [];
     if (settingSection) parts.push(settingSection);
     parts.push(base + languageSection);
-    if (extensions.length > 0) parts.push(extensions.join("\n\n"));
+    if (modulesSection) parts.push(modulesSection);
 
     return parts.join("\n\n");
+  }
+
+  private async resolveRoutedContextModules(input: {
+    actionText: string;
+    worldState: Record<string, unknown>;
+  }): Promise<RouterContextModule[]> {
+    const modules = this.getConfiguredContextModules();
+    if (modules.length === 0) return [];
+    if (!this.isContextRouterEnabled()) return [];
+
+    const selection = await this.contextRouterRuntime.selectModules({
+      actionText: input.actionText,
+      worldState: input.worldState,
+      modules,
+      config: this.getContextRouterConfig()
+    });
+
+    return selection.selectedModules;
+  }
+
+  private isContextRouterEnabled(): boolean {
+    const envValue = process.env.DM_CONTEXT_ROUTER_ENABLED;
+    if (envValue != null) {
+      return ["1", "true", "yes", "on"].includes(envValue.trim().toLowerCase());
+    }
+
+    const config = this.getContextRouterConfig();
+    return config?.enabled === true;
+  }
+
+  private getContextRouterConfig(): RouterConfig | undefined {
+    const dmRecord = this.gameModule.dm as Record<string, unknown>;
+    const value = dmRecord.contextRouter;
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return undefined;
+    }
+
+    const cfg = value as Record<string, unknown>;
+    const out: RouterConfig = {};
+
+    if (typeof cfg.enabled === "boolean") out.enabled = cfg.enabled;
+    if (typeof cfg.contextTokenBudget === "number") out.contextTokenBudget = cfg.contextTokenBudget;
+    if (typeof cfg.maxCandidates === "number") out.maxCandidates = cfg.maxCandidates;
+    if (typeof cfg.maxSelectedModules === "number") out.maxSelectedModules = cfg.maxSelectedModules;
+
+    return out;
+  }
+
+  private getConfiguredContextModules(): RouterContextModule[] {
+    const dmRecord = this.gameModule.dm as Record<string, unknown>;
+    const value = dmRecord.contextModules;
+    if (!Array.isArray(value)) return [];
+
+    return value
+      .map((item): RouterContextModule | null => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+        const obj = item as Record<string, unknown>;
+        if (typeof obj.id !== "string" || !obj.id.trim()) return null;
+        if (typeof obj.content !== "string" || !obj.content.trim()) return null;
+
+        const module: RouterContextModule = {
+          id: obj.id.trim(),
+          content: obj.content
+        };
+
+        if (typeof obj.priority === "number") module.priority = obj.priority;
+        if (typeof obj.alwaysInclude === "boolean") module.alwaysInclude = obj.alwaysInclude;
+        if (Array.isArray(obj.triggers)) {
+          module.triggers = obj.triggers
+            .filter((trigger): trigger is string => typeof trigger === "string")
+            .map((trigger) => trigger.trim())
+            .filter(Boolean);
+        }
+        if (typeof obj.file === "string") module.file = obj.file;
+
+        return module;
+      })
+      .filter((module): module is RouterContextModule => Boolean(module));
   }
 
   private async runSessionHooks(

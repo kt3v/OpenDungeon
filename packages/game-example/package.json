@@ -8,8 +8,12 @@
   "files": [
     "dist",
     "manifest.json",
-    "skills",
+    "dm.md",
+    "dm-config.json",
+    "modules",
     "lore",
+    "resources",
+    "classes.json",
     "setting.json"
   ],
   "author": "indie indie <https://github.com/kt3v>",

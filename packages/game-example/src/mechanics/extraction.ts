@@ -118,6 +118,52 @@ export const extractionMechanic = defineMechanic({
   },
 
   actions: {
+    camp: {
+      description: "Set up a campfire to rest and recover",
+      validate: (ctx) => {
+        if (!ctx.worldState.safeToRest) {
+          return "This area is too dangerous to camp. Find a safer spot first.";
+        }
+        return true;
+      },
+      resolve: async () => ({
+        message:
+          "You clear a small patch of ground, stack kindling, and coax a flame to life. The warmth is immediate. You settle in for a short rest.",
+        worldPatch: {
+          campfireActive: true,
+          safeToRest: false
+        },
+        suggestedActions: [
+          {
+            id: "continue",
+            label: "Break camp and move on",
+            prompt: "put out the fire and continue"
+          }
+        ]
+      })
+    },
+
+    revive: {
+      description: "Use a revival token to return from death with reduced HP",
+      validate: (ctx) => {
+        const tokens = Number(ctx.worldState.revivalTokens);
+        if (Number.isNaN(tokens) || tokens < 1) {
+          return "You have no revival tokens. Death is permanent this run.";
+        }
+        return true;
+      },
+      resolve: async () => ({
+        message:
+          "The revival token shatters as you grasp it. A surge of warmth pulls you back from the brink. You survive — barely.",
+        worldPatch: {
+          revivalTokens: 0
+        },
+        characterPatch: {
+          hp: 1
+        }
+      })
+    },
+
     extract: {
       description: "Exit the dungeon and keep your session loot",
       validate: (ctx) => {
@@ -141,21 +187,5 @@ export const extractionMechanic = defineMechanic({
         };
       }
     }
-  },
-
-  dmPromptExtension: ({ worldState }) => {
-    const sessionLoot = Array.isArray(worldState.sessionLoot)
-      ? worldState.sessionLoot
-      : [];
-
-    return [
-      "## Extraction Rules",
-      "- The dungeon has exit points (cave entrances, portals, ladders to the surface).",
-      '- When the player reaches one, include `"nearExit": true` in worldPatch.',
-      "- When the player finds an item, include it in `lootFound` array in worldPatch.",
-      "  Example: `\"lootFound\": [{ \"id\": \"rusty_sword\", \"label\": \"Rusty Sword\" }]`",
-      "- If the player dies, the session ends with reason 'player_death' and they lose all session loot.",
-      `- Current session loot count: ${sessionLoot.length}`
-    ].join("\n");
   }
 });
