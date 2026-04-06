@@ -296,10 +296,6 @@ const createModuleFiles = ({ absTargetDir, packageName, contentSdkDependency, ty
 
   const dmMd = `You are a Dungeon Master for ${packageName}.
 
-## Output Format
-Return valid JSON with key "message" (player-facing narration).
-Optional keys: toolCalls, worldPatch, summaryPatch, suggestedActions.
-
 ## Rules
 - Keep narration concise and atmospheric.
 - Prefer small, targeted worldPatch updates.
