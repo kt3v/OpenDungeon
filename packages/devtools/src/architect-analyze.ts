@@ -2,18 +2,17 @@
  * od architect analyze
  *
  * Reads unhandled intent logs from the database, groups them by pattern,
- * and asks the Architect LLM to suggest new SkillSchema definitions.
+ * and asks the Architect LLM to suggest new context module files.
  *
  * Usage:
  *   od architect analyze --campaign <id> [--since <ISO date>] [--min-count <n>] [--output <dir>] [--all]
  */
 
-import { createReadStream, mkdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join, resolve, dirname } from "node:path";
 import { createInterface } from "node:readline";
 import { PrismaClient } from "@prisma/client";
 import { SkillSuggestionRuntime, type IntentPattern } from "@opendungeon/architect";
-import type { SkillSchema } from "@opendungeon/content-sdk";
 import { color, c, sym, println, printError, printHeader } from "./lib/output.js";
 
 interface AnalyzeArgs {
@@ -33,7 +32,7 @@ export async function runArchitectAnalyze(argv: string[]): Promise<void> {
     println("  --campaign   Campaign ID to analyze (required)");
     println("  --since      Only include intents after this date (ISO 8601)");
     println("  --min-count  Minimum occurrences to include a pattern (default: 2)");
-    println("  --output     Directory to save suggested skill files (default: ./skills/suggested)");
+    println("  --output     Directory to save suggested module files (default: ./modules/suggested)");
     println("  --all        Save all suggestions without prompting");
     process.exit(1);
   }
@@ -66,8 +65,8 @@ export async function runArchitectAnalyze(argv: string[]): Promise<void> {
   println(color(`Found ${patterns.length} intent pattern(s).`, c.cyan));
   println();
 
-  // 2. Ask Architect LLM to suggest skills
-  println(color("Asking Architect to generate skill suggestions...", c.dim));
+  // 2. Ask Architect LLM to suggest context modules
+  println(color("Asking Architect to generate module suggestions...", c.dim));
   const suggester = new SkillSuggestionRuntime();
 
   let suggestions;
@@ -79,11 +78,11 @@ export async function runArchitectAnalyze(argv: string[]): Promise<void> {
   }
 
   if (suggestions.length === 0) {
-    println(color(`${sym.warn} Architect found no meaningful patterns to suggest skills for.`, c.yellow));
+    println(color(`${sym.warn} Architect found no meaningful patterns to suggest modules for.`, c.yellow));
     return;
   }
 
-  println(color(`${sym.ok} ${suggestions.length} skill suggestion(s) ready.`, c.green));
+  println(color(`${sym.ok} ${suggestions.length} module suggestion(s) ready.`, c.green));
   println();
 
   // 3. Show suggestions and optionally save
@@ -94,20 +93,21 @@ export async function runArchitectAnalyze(argv: string[]): Promise<void> {
     println(color(`Pattern: `, c.bold) + suggestion.pattern);
     println(color(`Occurrences: `, c.dim) + String(suggestion.occurrences));
     println();
-    println(color(`Suggested skill:`, c.cyan));
-    println(JSON.stringify(suggestion.skill, null, 2));
+    println(color(`Suggested module (${suggestion.path}):`, c.cyan));
+    println(suggestion.content);
     println();
 
-    const fileName = `${suggestion.skill.id}.json`;
+    // Use the suggested path relative to outputDir, or fall back to outputDir/<filename>
+    const fileName = suggestion.path.replace(/^modules\//, "");
     const filePath = join(resolve(args.outputDir), fileName);
 
     if (args.saveAll) {
-      saveSkill(filePath, suggestion.skill);
+      saveModule(filePath, suggestion.content);
       println(color(`${sym.ok} Saved to ${filePath}`, c.green));
     } else {
       const save = await prompt(`Save as ${color(filePath, c.cyan)}? [y/N] `);
       if (save.toLowerCase() === "y") {
-        saveSkill(filePath, suggestion.skill);
+        saveModule(filePath, suggestion.content);
         println(color(`${sym.ok} Saved.`, c.green));
       } else {
         println(color("Skipped.", c.dim));
@@ -119,7 +119,7 @@ export async function runArchitectAnalyze(argv: string[]): Promise<void> {
   println(color("─".repeat(60), c.dim));
   println();
   println(color("Done. ", c.bold) + `Review saved files in ${color(args.outputDir, c.cyan)}`);
-  println(color("Move them to your game's skills/ directory to activate.", c.dim));
+  println(color("Move them to your game's modules/ directory to activate.", c.dim));
 }
 
 // ---------------------------------------------------------------------------
@@ -156,12 +156,13 @@ async function fetchIntentPatterns(
     .map(([sample, occurrences]) => ({ sample, occurrences }));
 }
 
-function saveSkill(filePath: string, skill: SkillSchema): void {
-  writeFileSync(filePath, JSON.stringify(skill, null, 2) + "\n", "utf8");
+function saveModule(filePath: string, content: string): void {
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, content.endsWith("\n") ? content : content + "\n", "utf8");
 }
 
 function parseArgs(argv: string[]): AnalyzeArgs | null {
-  const args: Partial<AnalyzeArgs> = { minCount: 2, outputDir: "./skills/suggested", saveAll: false };
+  const args: Partial<AnalyzeArgs> = { minCount: 2, outputDir: "./modules/suggested", saveAll: false };
 
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];

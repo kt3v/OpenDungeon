@@ -1,4 +1,3 @@
-import type { SkillSchema } from "@opendungeon/content-sdk";
 import { createProviderFromEnv, type LlmProvider, type ChatMessage } from "@opendungeon/providers-llm";
 
 export interface IntentPattern {
@@ -8,42 +7,59 @@ export interface IntentPattern {
   occurrences: number;
 }
 
-export interface SkillSuggestion {
+export interface ModuleSuggestion {
   /** Human-readable description of the detected pattern. */
   pattern: string;
   /** Number of times this intent was observed. */
   occurrences: number;
-  /** Ready-to-save SkillSchema — can be written directly to skills/*.json. */
-  skill: SkillSchema;
+  /** Suggested filename relative to module root, e.g. "modules/stealth.md" */
+  path: string;
+  /** Ready-to-save Markdown content with YAML frontmatter. */
+  content: string;
 }
 
-export interface SkillSuggestionRuntimeOptions {
+export interface ModuleSuggestionRuntimeOptions {
   provider?: LlmProvider;
   maxJsonRepairAttempts?: number;
 }
 
 const SYSTEM_PROMPT = [
   "You are an OpenDungeon game designer assistant.",
-  "You are given a list of player actions that were not handled by any game mechanic —",
-  "the AI dungeon master narrated them freely without using a structured skill.",
+  "You are given a list of player actions that were not handled by any structured game mechanic —",
+  "the AI dungeon master narrated them freely without guidance from a context module.",
   "",
-  "Your task: identify recurring patterns and suggest new SkillSchema definitions",
-  "that would make these interactions more structured and consistent.",
+  "Your task: identify recurring patterns and suggest new context module files",
+  "that would give the DM better guidance for these situations.",
   "",
-  "For each pattern decide the resolve mode:",
-  '  "ai"            — open-ended actions where DM context matters (most actions)',
-  '  "deterministic" — actions with a fixed, fully predictable outcome (use sparingly)',
+  "A context module is a Markdown file in modules/ with optional YAML frontmatter.",
+  "The module body is clear instructions to the DM — what worldPatch keys to set,",
+  "what narrative outcomes look like, how to handle edge cases.",
   "",
-  "A good SkillSchema includes:",
-  '  - "id": short snake_case identifier',
-  '  - "description": concise label shown to the DM as a tool (max 10 words)',
-  '  - "dmPromptExtension": rules the DM should know about this skill (markdown)',
-  '  - "resolve": "ai" | "deterministic"',
-  '  - "outcome": required when resolve is "deterministic"',
+  "For each pattern, produce a ready-to-save .md file with this structure:",
+  "  ---",
+  "  id: <kebab-case-id>",
+  "  priority: <50-100>",
+  "  alwaysInclude: false",
+  "  triggers:",
+  "    - <keyword1>",
+  "    - <keyword2>",
+  "  ---",
   "",
-  "Skip obvious one-offs. Focus on patterns that appear ≥2 times.",
+  "  ## <Mechanic Name>",
   "",
-  'Return strict JSON: { "suggestions": [ { "pattern": "...", "occurrences": N, "skill": { ...SkillSchema } } ] }'
+  "  - <Clear instruction to the DM>",
+  "  - <What worldPatch keys to set and when>",
+  "  - <Success/failure outcomes>",
+  "",
+  "Guidelines:",
+  "  - triggers: short, common keywords a player would use (2-6 triggers)",
+  "  - priority: 70-90 for important mechanics, 50-70 for situational ones",
+  "  - alwaysInclude: true only for rules that must apply every turn (rare)",
+  "  - module body: concrete DM instructions, not vague advice",
+  "  - reference specific worldPatch keys the DM should set",
+  "  - Skip obvious one-offs. Focus on patterns that appear ≥2 times.",
+  "",
+  'Return strict JSON: { "suggestions": [ { "pattern": "...", "occurrences": N, "path": "modules/<id>.md", "content": "<full markdown>" } ] }'
 ].join("\n");
 
 const JSON_REPAIR_PROMPT =
@@ -53,17 +69,17 @@ export class SkillSuggestionRuntime {
   private readonly provider: LlmProvider;
   private readonly maxJsonRepairAttempts: number;
 
-  constructor(options: SkillSuggestionRuntimeOptions = {}) {
+  constructor(options: ModuleSuggestionRuntimeOptions = {}) {
     this.provider = options.provider ?? createProviderFromEnv();
     this.maxJsonRepairAttempts = options.maxJsonRepairAttempts ?? 2;
   }
 
-  async suggestSkills(patterns: IntentPattern[]): Promise<SkillSuggestion[]> {
+  async suggestSkills(patterns: IntentPattern[]): Promise<ModuleSuggestion[]> {
     if (patterns.length === 0) return [];
 
     const userMessage = JSON.stringify(
       {
-        task: "Analyze these unhandled player intents and suggest SkillSchema definitions.",
+        task: "Analyze these unhandled player intents and suggest context module files.",
         intents: patterns.map((p) => ({
           sample: p.sample,
           occurrences: p.occurrences
@@ -98,7 +114,7 @@ export class SkillSuggestionRuntime {
       }
     }
 
-    throw new Error(`Skill suggestion failed after retries: ${String(lastError)}`);
+    throw new Error(`Module suggestion failed after retries: ${String(lastError)}`);
   }
 }
 
@@ -106,7 +122,7 @@ export class SkillSuggestionRuntime {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const parseResponse = (raw: string): SkillSuggestion[] => {
+const parseResponse = (raw: string): ModuleSuggestion[] => {
   const text = raw.startsWith("```") ? raw.split("\n").slice(1, -1).join("\n") : raw;
   const value = JSON.parse(text.trim());
 
@@ -119,14 +135,16 @@ const parseResponse = (raw: string): SkillSuggestion[] => {
     .map((s) => ({
       pattern: s.pattern,
       occurrences: s.occurrences,
-      skill: s.skill
+      path: s.path,
+      content: s.content
     }));
 };
 
 interface RawSuggestion {
   pattern: string;
   occurrences: number;
-  skill: SkillSchema;
+  path: string;
+  content: string;
 }
 
 const isSuggestion = (v: unknown): v is RawSuggestion =>
@@ -136,16 +154,6 @@ const isSuggestion = (v: unknown): v is RawSuggestion =>
       !Array.isArray(v) &&
       typeof (v as Record<string, unknown>).pattern === "string" &&
       typeof (v as Record<string, unknown>).occurrences === "number" &&
-      isSkillSchema((v as Record<string, unknown>).skill)
-  );
-
-const isSkillSchema = (v: unknown): v is SkillSchema =>
-  Boolean(
-    v &&
-      typeof v === "object" &&
-      !Array.isArray(v) &&
-      typeof (v as Record<string, unknown>).id === "string" &&
-      typeof (v as Record<string, unknown>).description === "string" &&
-      ((v as Record<string, unknown>).resolve === "ai" ||
-        (v as Record<string, unknown>).resolve === "deterministic")
+      typeof (v as Record<string, unknown>).path === "string" &&
+      typeof (v as Record<string, unknown>).content === "string"
   );

@@ -19,8 +19,8 @@ export type {
 } from "./game-scaffolder.js";
 export type {
   IntentPattern,
-  SkillSuggestion,
-  SkillSuggestionRuntimeOptions
+  ModuleSuggestion,
+  ModuleSuggestionRuntimeOptions
 } from "./skill-suggester.js";
 export type {
   ArchitectRuntimeOptions,
