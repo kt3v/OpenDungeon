@@ -11,6 +11,8 @@ import {
   type SuggestedAction
 } from "@opendungeon/content-sdk";
 import { createProviderFromEnv, type ChatMessage, type LlmProvider } from "@opendungeon/providers-llm";
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 
 export interface MechanicToolEntry {
   /** Routing key, e.g. "exploration.look" or "extraction.extract". */
@@ -72,6 +74,11 @@ const DEFAULT_SYSTEM_PROMPT = [
   "Do not include markdown code fences or commentary."
 ].join("\n");
 
+const LLM_CONTEXT_LOG_FILE_ENV = "LLM_CONTEXT_LOG_FILE";
+const DM_WORLD_STATE_MAX_BYTES_ENV = "DM_WORLD_STATE_MAX_BYTES";
+const DM_WORLD_STATE_MAX_BYTES_DEFAULT = 2500;
+const DM_RECENT_ACTIONS_MAX = 8;
+
 export class DungeonMasterRuntime {
   private readonly provider: LlmProvider;
   private readonly systemPrompt: string;
@@ -107,56 +114,78 @@ export class DungeonMasterRuntime {
     const hasMechanicTools =
       input.availableMechanicActions && input.availableMechanicActions.length > 0;
 
+    const worldStateForPrompt = projectWorldStateForPrompt(input.worldState);
+    const recentActionTexts = buildRecentActionTexts(input.recentEvents);
+
+    const userPayload = {
+      task: "Resolve one player action for a dungeon session.",
+      ...(hasMechanicTools
+        ? { availableMechanicActions: input.availableMechanicActions }
+        : {}),
+      responseContract: {
+        message: "string (required)",
+        ...(hasMechanicTools
+          ? {
+              mechanicCall: {
+                id: "id from availableMechanicActions — invoke this mechanic instead of narrating freely (omit to narrate)",
+                args: "optional object matching the action's paramSchema"
+              }
+            }
+          : {}),
+        toolCalls: [
+          {
+            tool: "update_world_state | set_summary | set_suggested_actions",
+            args: "tool-specific object"
+          }
+        ],
+        worldPatch: "object (optional, ignored when mechanicCall is set)",
+        summaryPatch: {
+          shortSummary: "string (optional)",
+          latestBeat: "string (optional)"
+        },
+        suggestedActions: [{ id: "string", label: "string", prompt: "string" }]
+      },
+      context: {
+        campaignId: input.campaignId,
+        sessionId: input.sessionId,
+        campaignTitle: input.campaignTitle,
+        playerId: input.playerId,
+        actionText: input.actionText,
+        summary: input.summary ?? "",
+        contextualLore: input.contextualLore ?? "",
+        worldState: worldStateForPrompt,
+        recentActionTexts,
+        recentActionsCount: recentActionTexts.length,
+        totalRecentEventsSeen: input.recentEvents.length
+      }
+    };
+
+    const userPayloadText = JSON.stringify(userPayload);
+
     const messages: ChatMessage[] = [
       { role: "system", content: systemPrompt },
       {
         role: "user",
-        content: JSON.stringify(
-          {
-            task: "Resolve one player action for a dungeon session.",
-            ...(hasMechanicTools
-              ? { availableMechanicActions: input.availableMechanicActions }
-              : {}),
-            responseContract: {
-              message: "string (required)",
-              ...(hasMechanicTools
-                ? {
-                    mechanicCall: {
-                      id: "id from availableMechanicActions — invoke this mechanic instead of narrating freely (omit to narrate)",
-                      args: "optional object matching the action's paramSchema"
-                    }
-                  }
-                : {}),
-              toolCalls: [
-                {
-                  tool: "update_world_state | set_summary | set_suggested_actions",
-                  args: "tool-specific object"
-                }
-              ],
-              worldPatch: "object (optional, ignored when mechanicCall is set)",
-              summaryPatch: {
-                shortSummary: "string (optional)",
-                latestBeat: "string (optional)"
-              },
-              suggestedActions: [{ id: "string", label: "string", prompt: "string" }]
-            },
-            context: {
-              campaignId: input.campaignId,
-              sessionId: input.sessionId,
-              campaignTitle: input.campaignTitle,
-              playerId: input.playerId,
-              actionText: input.actionText,
-              summary: input.summary ?? "",
-              contextualLore: input.contextualLore ?? "",
-              worldState: input.worldState,
-              recentEvents: input.recentEvents.slice(-20)
-            }
-          },
-          null,
-          2
-        )
+        content: userPayloadText
       }
     ];
+
+    await writeContextSizeLog({
+      campaignId: input.campaignId,
+      sessionId: input.sessionId,
+      playerId: input.playerId,
+      actionText: input.actionText,
+      systemPrompt,
+      summary: input.summary ?? "",
+      contextualLore: input.contextualLore ?? "",
+      worldStateRaw: input.worldState,
+      worldStateForPrompt,
+      recentEventsRaw: input.recentEvents,
+      recentActionTexts,
+      availableMechanicActions: hasMechanicTools ? input.availableMechanicActions ?? [] : [],
+      userPayloadText,
+      messages
+    });
 
     let lastParseError: unknown;
     for (let attempt = 0; attempt <= this.maxJsonRepairAttempts; attempt += 1) {
@@ -365,4 +394,187 @@ const resolveSystemPrompt = (input: {
   }
 
   return input.fallbackPrompt;
+};
+
+const toMetric = (label: string, value: string): { label: string; chars: number; bytes: number; tokens: number } => {
+  const chars = value.length;
+  const bytes = Buffer.byteLength(value, "utf8");
+  const tokens = Math.ceil(bytes / 4);
+  return { label, chars, bytes, tokens };
+};
+
+const safeStringify = (value: unknown): string => {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+};
+
+const buildContextSizeLogBlock = (input: {
+  campaignId: string;
+  sessionId: string;
+  playerId: string;
+  actionText: string;
+  systemPrompt: string;
+  summary: string;
+  contextualLore: string;
+  worldStateRaw: Record<string, unknown>;
+  worldStateForPrompt: Record<string, unknown>;
+  recentEventsRaw: Array<{ createdAt: string; playerId: string; actionText: string; message: string }>;
+  recentActionTexts: string[];
+  availableMechanicActions: MechanicToolEntry[];
+  userPayloadText: string;
+  messages: ChatMessage[];
+}): string => {
+  const timestamp = new Date().toISOString();
+
+  const sections = [
+    toMetric("systemPrompt", input.systemPrompt),
+    toMetric("summary", input.summary),
+    toMetric("contextualLore", input.contextualLore),
+    toMetric("worldStateRaw", safeStringify(input.worldStateRaw)),
+    toMetric("worldStateForPrompt", safeStringify(input.worldStateForPrompt)),
+    toMetric("recentEventsRaw", safeStringify(input.recentEventsRaw)),
+    toMetric("recentActionTexts", safeStringify(input.recentActionTexts)),
+    toMetric("availableMechanicActions", safeStringify(input.availableMechanicActions)),
+    toMetric("userPayloadJson", input.userPayloadText),
+    toMetric("messagesFull", safeStringify(input.messages))
+  ];
+
+  const totalBytes = sections.reduce((sum, s) => sum + s.bytes, 0);
+  const totalTokens = sections.reduce((sum, s) => sum + s.tokens, 0);
+
+  const actionPreview = input.actionText.length > 120
+    ? `${input.actionText.slice(0, 120)}...`
+    : input.actionText;
+
+  const lines: string[] = [];
+  lines.push("============================================================");
+  lines.push(`[LLM_CONTEXT] ${timestamp}`);
+  lines.push(`campaignId=${input.campaignId}`);
+  lines.push(`sessionId=${input.sessionId}`);
+  lines.push(`playerId=${input.playerId}`);
+  lines.push(`actionText=${JSON.stringify(actionPreview)}`);
+  lines.push("--- parts ---");
+
+  for (const section of sections) {
+    const percent = totalBytes > 0 ? ((section.bytes / totalBytes) * 100).toFixed(1) : "0.0";
+    lines.push(
+      `${section.label.padEnd(24)} chars=${String(section.chars).padStart(6)} bytes=${String(section.bytes).padStart(6)} est_tokens=${String(section.tokens).padStart(6)} share=${percent}%`
+    );
+  }
+
+  lines.push("--- total ---");
+  lines.push(`bytes=${totalBytes} est_tokens=${totalTokens}`);
+  lines.push("============================================================");
+  lines.push("");
+
+  return lines.join("\n");
+};
+
+const writeContextSizeLog = async (input: {
+  campaignId: string;
+  sessionId: string;
+  playerId: string;
+  actionText: string;
+  systemPrompt: string;
+  summary: string;
+  contextualLore: string;
+  worldStateRaw: Record<string, unknown>;
+  worldStateForPrompt: Record<string, unknown>;
+  recentEventsRaw: Array<{ createdAt: string; playerId: string; actionText: string; message: string }>;
+  recentActionTexts: string[];
+  availableMechanicActions: MechanicToolEntry[];
+  userPayloadText: string;
+  messages: ChatMessage[];
+}): Promise<void> => {
+  const filePath = process.env[LLM_CONTEXT_LOG_FILE_ENV];
+  if (!filePath || !filePath.trim()) return;
+
+  try {
+    await mkdir(dirname(filePath), { recursive: true });
+    const block = buildContextSizeLogBlock(input);
+    await appendFile(filePath, block, "utf8");
+  } catch (err) {
+    console.warn(`[LLM_CONTEXT] Failed to write ${LLM_CONTEXT_LOG_FILE_ENV}:`, err);
+  }
+};
+
+const getWorldStatePromptMaxBytes = (): number => {
+  const raw = process.env[DM_WORLD_STATE_MAX_BYTES_ENV];
+  const parsed = raw ? Number(raw) : NaN;
+  if (Number.isFinite(parsed) && parsed > 200) {
+    return Math.floor(parsed);
+  }
+  return DM_WORLD_STATE_MAX_BYTES_DEFAULT;
+};
+
+const keyPriority = (key: string): number => {
+  if (key === "location") return 0;
+  if (key.startsWith("location.")) return 1;
+  if (key.includes("summary") || key.includes("beat")) return 2;
+  if (key.includes("hp") || key.includes("health") || key.includes("gold")) return 3;
+  if (key.includes("inventory") || key.includes("loot")) return 4;
+  return 5;
+};
+
+const projectWorldStateForPrompt = (
+  worldState: Record<string, unknown>
+): Record<string, unknown> => {
+  const maxBytes = getWorldStatePromptMaxBytes();
+  const raw = safeStringify(worldState);
+  const rawBytes = Buffer.byteLength(raw, "utf8");
+  if (rawBytes <= maxBytes) {
+    return worldState;
+  }
+
+  const entries = Object.entries(worldState).sort((a, b) => {
+    const prioDiff = keyPriority(a[0]) - keyPriority(b[0]);
+    if (prioDiff !== 0) return prioDiff;
+    return a[0].localeCompare(b[0]);
+  });
+
+  const selected: Record<string, unknown> = {};
+  let omitted = 0;
+
+  for (const [key, value] of entries) {
+    const next = { ...selected, [key]: value };
+    const bytes = Buffer.byteLength(safeStringify(next), "utf8");
+    if (bytes <= maxBytes) {
+      selected[key] = value;
+    } else {
+      omitted += 1;
+    }
+  }
+
+  const withMeta: Record<string, unknown> = {
+    ...selected,
+    _contextTruncated: true,
+    _contextMaxBytes: maxBytes,
+    _contextRawBytes: rawBytes,
+    _contextOmittedKeys: omitted
+  };
+
+  const finalBytes = Buffer.byteLength(safeStringify(withMeta), "utf8");
+  if (finalBytes <= maxBytes) {
+    return withMeta;
+  }
+
+  return {
+    _contextTruncated: true,
+    _contextMaxBytes: maxBytes,
+    _contextRawBytes: rawBytes,
+    _contextOmittedKeys: omitted,
+    location: typeof worldState.location === "string" ? worldState.location : undefined
+  };
+};
+
+const buildRecentActionTexts = (
+  recentEvents: Array<{ actionText: string }>
+): string[] => {
+  return recentEvents
+    .slice(-DM_RECENT_ACTIONS_MAX)
+    .map((event) => event.actionText)
+    .filter((text) => typeof text === "string" && text.trim().length > 0);
 };
