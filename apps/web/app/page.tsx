@@ -93,7 +93,10 @@ export default function HomePage() {
   );
 
   const request = async (path: string, options: RequestInit = {}): Promise<any> => {
-    const response = await fetch(`${baseUrl}${path}`, options);
+    const response = await fetch(`${baseUrl}${path}`, {
+      ...options,
+      cache: 'no-store',
+    });
     const raw = await response.text();
     let payload: any = {};
     if (raw) {
@@ -314,18 +317,24 @@ export default function HomePage() {
     }
   };
 
-  const pollActionResult = async (sessionId: string, actionId: string): Promise<void> => {
+  const pollActionResult = async (sessionId: string, actionId: string): Promise<{ event?: SessionEvent } | null> => {
     for (let i = 0; i < 120; i++) {
       await new Promise((resolve) => setTimeout(resolve, 500));
       try {
         const data = await request(`/sessions/${sessionId}/actions/${actionId}`, {
           headers: authHeaders,
         });
-        if (data.status === "done" || data.status === "failed") return;
+        if (data.status === "done") {
+          return { event: data.result?.event };
+        }
+        if (data.status === "failed") {
+          return null;
+        }
       } catch {
-        return;
+        return null;
       }
     }
+    return null;
   };
 
   const submitAction = async (prompt = actionText): Promise<void> => {
@@ -339,7 +348,13 @@ export default function HomePage() {
         headers: authJsonHeaders,
         body: JSON.stringify({ actionText: cleanPrompt }),
       });
-      await pollActionResult(selectedSessionId, actionId);
+      const result = await pollActionResult(selectedSessionId, actionId);
+      // Immediately update events with the result from polling
+      if (result?.event) {
+        const newEvent = result.event;
+        setEvents(prev => [...prev, newEvent]);
+      }
+      // Still reload to get updated worldState and suggested actions
       await loadSessionState(selectedSessionId);
       await loadSuggestedActions(selectedSessionId);
     } catch {
