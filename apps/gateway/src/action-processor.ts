@@ -47,10 +47,7 @@ export interface SessionSnapshot {
   userId: string;
   characterName: string;
   characterClass: string;
-  characterLevel: number;
-  characterHp: number;
-  characterAttributes: Record<string, unknown>;
-  characterInventory: Record<string, unknown>;
+  /// Unified character state: hp, level, attributes, inventory + ephemeral data
   characterState: Record<string, unknown>;
   status: "active" | "ended";
   summary?: string;
@@ -88,9 +85,6 @@ export interface ProcessorCallbacks {
     sessionId: string,
     mutation: {
       characterState?: Record<string, unknown>;
-      characterHp?: number;
-      characterLevel?: number;
-      characterInventory?: Record<string, unknown>;
       summary?: string;
       suggestedActions?: Array<{ id: string; label: string; prompt: string }>;
       appendEvent: {
@@ -273,12 +267,12 @@ export class ActionProcessor {
       // Phase B — LLM execution (runs in parallel, no campaign lock needed)
       // ------------------------------------------------------------------
 
-      const character = {
+      // Build character state for the engine
+      const characterStateForTurn = {
+        ...session.characterState,
         id: session.id,
         name: session.characterName,
-        className: session.characterClass,
-        level: session.characterLevel,
-        hp: session.characterHp
+        className: session.characterClass
       };
 
       const result = await this.runtime.executeTurn({
@@ -286,7 +280,7 @@ export class ActionProcessor {
         campaignId,
         sessionId,
         playerId: session.userId,
-        character,
+        characterState: characterStateForTurn,
         actionText,
         mechanicActionId,
         worldState: mergedWorldState,
@@ -353,18 +347,17 @@ export class ActionProcessor {
           message: result.message
         };
 
-        // Merge character-local patch into characterState
+        // Build new characterState by merging:
+        // 1. Current state
+        // 2. Any patches from mechanics (hp/level are already in characterState from engine)
         const newCharacterState: Record<string, unknown> = {
           ...session.characterState,
-          ...(result.characterPatch ?? {})
+          ...(result.characterState ?? {})
         };
 
         // Commit session mutation (persists to DB and updates in-memory)
         await this.callbacks.commitSessionMutation(sessionId, {
           characterState: newCharacterState,
-          characterHp: character.hp,
-          characterLevel: character.level,
-          characterInventory: session.characterInventory,
           summary: result.summaryPatch?.shortSummary ?? session.summary,
           suggestedActions:
             result.suggestedActions && result.suggestedActions.length > 0
@@ -387,7 +380,7 @@ export class ActionProcessor {
                 actionText,
                 message: result.message,
                 hadWorldPatch: !!result.worldPatch,
-                hadCharacterPatch: !!(result as { characterPatch?: unknown }).characterPatch,
+                hadCharacterState: !!(result as { characterState?: unknown }).characterState,
                 endSession: endSessionReason ?? null,
                 endWorldPatch: endWorldPatch ?? null
               })) as object
@@ -422,9 +415,13 @@ export class ActionProcessor {
         };
 
         // Human-readable log
-        const hpChanged = character.hp !== session.characterHp;
-        const levelChanged = character.level !== session.characterLevel;
-        
+        const oldHp = session.characterState.hp as number;
+        const oldLevel = session.characterState.level as number;
+        const newHp = newCharacterState.hp as number;
+        const newLevel = newCharacterState.level as number;
+        const hpChanged = newHp !== oldHp;
+        const levelChanged = newLevel !== oldLevel;
+
         if (endSessionReason) {
           console.log(`[EVENT] CHARACTER_${endSessionReason.toUpperCase()}`, JSON.stringify({
             characterName: session.characterName,
@@ -434,10 +431,10 @@ export class ActionProcessor {
           }, null, 0));
         } else {
           const changes: string[] = [];
-          if (hpChanged) changes.push(`HP: ${session.characterHp} → ${character.hp}`);
-          if (levelChanged) changes.push(`Level: ${session.characterLevel} → ${character.level}`);
+          if (hpChanged) changes.push(`HP: ${oldHp} → ${newHp}`);
+          if (levelChanged) changes.push(`Level: ${oldLevel} → ${newLevel}`);
           if (result.summaryPatch?.shortSummary) changes.push("Summary updated");
-          
+
           console.log(`[EVENT] ACTION_RESOLVED`, JSON.stringify({
             characterName: session.characterName,
             action: actionText,

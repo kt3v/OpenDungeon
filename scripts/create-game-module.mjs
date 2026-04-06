@@ -350,7 +350,7 @@ triggers:
   const hpResource = {
     id: "hp",
     label: "HP",
-    source: "character",
+    source: "characterState",
     stateKey: "hp",
     type: "number"
   };

@@ -29,7 +29,7 @@ type SuggestedAction = {
   prompt: string;
 };
 
-type ResourceSource = "character" | "characterState" | "worldState";
+type ResourceSource = "characterState" | "worldState";
 type ResourceType = "number" | "text" | "list" | "boolean";
 type ResourceSchema = {
   id: string;
@@ -52,16 +52,10 @@ const resolveDotPath = (obj: Record<string, unknown>, path: string): unknown =>
 
 const resolveResourceValue = (
   schema: ResourceSchema,
-  character: SessionCharacter,
   characterState: Record<string, unknown>,
   worldState: Record<string, unknown>
 ): unknown => {
-  const src =
-    schema.source === "character"
-      ? (character as unknown as Record<string, unknown>)
-      : schema.source === "characterState"
-        ? characterState
-        : worldState;
+  const src = schema.source === "characterState" ? characterState : worldState;
   const val = resolveDotPath(src, schema.stateKey);
   return val === undefined || val === null ? (schema.defaultValue ?? "—") : val;
 };
@@ -84,14 +78,12 @@ const formatResourceValue = (value: unknown, type: ResourceType): string => {
 
 type ResourceIndicatorsProps = {
   schemas: ResourceSchema[];
-  character: SessionCharacter;
   characterState: Record<string, unknown>;
   worldState: Record<string, unknown>;
 };
 
 export function ResourceIndicators({
   schemas,
-  character,
   characterState,
   worldState,
 }: ResourceIndicatorsProps) {
@@ -99,7 +91,7 @@ export function ResourceIndicators({
   return (
     <div className="resource-indicators">
       {schemas.map((schema) => {
-        const raw = resolveResourceValue(schema, character, characterState, worldState);
+        const raw = resolveResourceValue(schema, characterState, worldState);
         return (
           <div key={schema.id} className="resource-indicator">
             <span className="resource-label">{schema.label}</span>
@@ -502,7 +494,6 @@ export function ActionsScreen(props: ActionsScreenProps) {
 
       <ResourceIndicators
         schemas={props.resourceSchemas}
-        character={props.sessionCharacter}
         characterState={props.characterState}
         worldState={props.worldState}
       />

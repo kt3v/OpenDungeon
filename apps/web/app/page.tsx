@@ -11,7 +11,7 @@ import {
 type ResourceSchema = {
   id: string;
   label: string;
-  source: "character" | "characterState" | "worldState";
+  source: "characterState" | "worldState";
   stateKey: string;
   type: "number" | "text" | "list" | "boolean";
   defaultValue?: string | number | boolean | unknown[];

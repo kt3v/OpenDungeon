@@ -26,7 +26,7 @@ export const extractionMechanic = defineMechanic({
 
   hooks: {
     onCharacterCreated: async (ctx) => {
-      const gear = STARTING_GEAR[ctx.character.className] ?? [];
+      const gear = STARTING_GEAR[ctx.characterClass] ?? [];
 
       const persistedKey = `persistedLoot_${ctx.playerId}`;
       const existing = Array.isArray(ctx.worldState[persistedKey])
@@ -37,7 +37,7 @@ export const extractionMechanic = defineMechanic({
         worldPatch: {
           [persistedKey]: [...existing, ...gear]
         },
-        characterPatch: {
+        characterState: {
           gold: 10,
           inventory: gear.map(g => ({ id: g.id, label: g.label }))
         }
@@ -158,7 +158,7 @@ export const extractionMechanic = defineMechanic({
         worldPatch: {
           revivalTokens: 0
         },
-        characterPatch: {
+        characterState: {
           hp: 1
         }
       })

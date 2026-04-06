@@ -44,7 +44,8 @@ export interface ExecuteTurnInput {
   campaignId: string;
   sessionId: string;
   playerId: string;
-  character: CharacterInfo;
+  /** Unified character state: hp, level, attributes, inventory + ephemeral data */
+  characterState: Record<string, unknown>;
   actionText: string;
   /**
    * Explicit mechanic routing key: "<mechanicId>.<actionId>".
@@ -68,7 +69,8 @@ export interface CharacterCreatedInput {
   tenantId: string;
   campaignId: string;
   playerId: string;
-  character: CharacterInfo;
+  characterClass: string;
+  characterState: Record<string, unknown>;
   worldState: Record<string, unknown>;
 }
 
@@ -77,6 +79,7 @@ export interface StartSessionInput {
   campaignId: string;
   sessionId: string;
   playerId: string;
+  characterState: Record<string, unknown>;
   worldState: Record<string, unknown>;
 }
 
@@ -128,12 +131,13 @@ export class EngineRuntime {
       tenantId: input.tenantId,
       campaignId: input.campaignId,
       playerId: input.playerId,
-      character: input.character,
+      characterClass: input.characterClass,
+      characterState: input.characterState,
       worldState: input.worldState
     };
 
     let worldPatch: Record<string, unknown> = {};
-    let characterPatch: Record<string, unknown> = {};
+    let characterStatePatch: Record<string, unknown> = {};
 
     for (const mechanic of this.mechanics) {
       const fn = mechanic.hooks?.onCharacterCreated;
@@ -143,14 +147,14 @@ export class EngineRuntime {
         worldPatch = { ...worldPatch, ...patch.worldPatch };
         ctx.worldState = { ...ctx.worldState, ...patch.worldPatch };
       }
-      if (patch?.characterPatch) {
-        characterPatch = { ...characterPatch, ...patch.characterPatch };
+      if (patch?.characterState) {
+        characterStatePatch = { ...characterStatePatch, ...patch.characterState };
       }
     }
 
     return {
       worldPatch: Object.keys(worldPatch).length > 0 ? worldPatch : undefined,
-      characterPatch: Object.keys(characterPatch).length > 0 ? characterPatch : undefined
+      characterState: Object.keys(characterStatePatch).length > 0 ? characterStatePatch : undefined
     };
   }
 
@@ -159,11 +163,12 @@ export class EngineRuntime {
   // -------------------------------------------------------------------------
 
   async startSession(input: StartSessionInput): Promise<StatePatch> {
-    const ctx: BaseContext = {
+    const ctx: BaseContext & { characterState: Record<string, unknown> } = {
       tenantId: input.tenantId,
       campaignId: input.campaignId,
       sessionId: input.sessionId,
       playerId: input.playerId,
+      characterState: input.characterState,
       worldState: input.worldState
     };
 
@@ -199,7 +204,7 @@ export class EngineRuntime {
       sessionId: input.sessionId,
       playerId: input.playerId,
       worldState: input.worldState,
-      character: input.character,
+      characterState: input.characterState,
       actionText: input.actionText
     };
 
@@ -528,10 +533,10 @@ export class EngineRuntime {
 
   private async runSessionHooks(
     hook: "onSessionStart",
-    ctx: BaseContext
+    ctx: BaseContext & { characterState: Record<string, unknown> }
   ): Promise<StatePatch> {
     let worldPatch: Record<string, unknown> = {};
-    let characterPatch: Record<string, unknown> = {};
+    let characterStatePatch: Record<string, unknown> = {};
 
     for (const mechanic of this.mechanics) {
       const fn = mechanic.hooks?.[hook];
@@ -542,14 +547,14 @@ export class EngineRuntime {
         // Update ctx so later mechanics see accumulated state
         ctx = { ...ctx, worldState: { ...ctx.worldState, ...patch.worldPatch } };
       }
-      if (patch?.characterPatch) {
-        characterPatch = { ...characterPatch, ...patch.characterPatch };
+      if (patch?.characterState) {
+        characterStatePatch = { ...characterStatePatch, ...patch.characterState };
       }
     }
 
     return {
       worldPatch: Object.keys(worldPatch).length > 0 ? worldPatch : undefined,
-      characterPatch: Object.keys(characterPatch).length > 0 ? characterPatch : undefined
+      characterState: Object.keys(characterStatePatch).length > 0 ? characterStatePatch : undefined
     };
   }
 

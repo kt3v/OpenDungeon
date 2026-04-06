@@ -56,11 +56,11 @@ export interface ActionResult {
    */
   worldPatch?: Record<string, unknown>;
   /**
-   * Mutations to this character's private state — visible only to this session.
-   * Use this for session-local data: sessionLoot, nearExit, personal flags, etc.
+   * Mutations to this character's unified state — merged into characterState.
+   * Contains all character data: hp, level, attributes, inventory + ephemeral data.
    * Never bleeds into the shared world.
    */
-  characterPatch?: Record<string, unknown>;
+  characterState?: Record<string, unknown>;
   suggestedActions?: SuggestedAction[];
   summaryPatch?: DungeonMasterSummaryPatch;
   /** When set the engine will run the session-end pipeline after this turn. */
@@ -75,8 +75,8 @@ export interface ActionResult {
 
 export interface StatePatch {
   worldPatch?: Record<string, unknown>;
-  /** Character-local mutations — applied only to this session's characterState. */
-  characterPatch?: Record<string, unknown>;
+  /** Character-local mutations — merged into this session's characterState. */
+  characterState?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +92,8 @@ export interface BaseContext {
 }
 
 export interface ActionContext extends BaseContext {
-  character: CharacterInfo;
+  /** Unified character state: hp, level, attributes, inventory + ephemeral data */
+  characterState: Record<string, unknown>;
   actionText: string;
 }
 
@@ -104,7 +105,10 @@ export interface CharacterCreatedContext {
   tenantId: string;
   campaignId: string;
   playerId: string;
-  character: CharacterInfo;
+  /** Character class name (e.g., "Warrior", "Mage") */
+  characterClass: string;
+  /** Initial character state from template — hooks can modify/extend it */
+  characterState: Record<string, unknown>;
   worldState: Record<string, unknown>;
 }
 
@@ -366,14 +370,13 @@ export interface ResourceSchema {
   label: string;
   /**
    * Where the value lives in the state response:
-   *   "character"      → session.character  (CharacterInfo: hp, level, name, className)
-   *   "characterState" → characterState      (session-local key/value store)
-   *   "worldState"     → worldState          (shared campaign state)
+   *   "characterState" → characterState  (unified character state: hp, level, etc.)
+   *   "worldState"     → worldState      (shared campaign state)
    */
-  source: "character" | "characterState" | "worldState";
+  source: "characterState" | "worldState";
   /**
    * Dot-path to the value within the source object.
-   * Examples: "hp", "gold", "inventory", "sessionLoot.length"
+   * Examples: "hp", "level", "gold", "inventory", "sessionLoot.length"
    */
   stateKey: string;
   /** How the UI should format the value. */

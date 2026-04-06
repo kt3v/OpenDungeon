@@ -40,19 +40,19 @@ export const hookSchemasToMechanics = (schemas: HookSchema[]): Mechanic[] => {
               // Start with the root-level patches
               const patch: StatePatch = {
                 worldPatch: schema.worldPatch ? { ...schema.worldPatch } : undefined,
-                characterPatch: schema.characterPatch ? { ...schema.characterPatch } : undefined
+                characterState: schema.characterPatch ? { ...schema.characterPatch } : undefined
               };
 
               // Apply class-specific overrides if classBranches is defined
               if (schema.classBranches) {
-                const branch = schema.classBranches[ctx.character.className];
+                const branch = schema.classBranches[ctx.characterClass];
                 if (branch) {
                   if (branch.worldPatch) {
                     patch.worldPatch = { ...(patch.worldPatch ?? {}), ...branch.worldPatch };
                   }
                   if (branch.characterPatch) {
-                    patch.characterPatch = {
-                      ...(patch.characterPatch ?? {}),
+                    patch.characterState = {
+                      ...(patch.characterState ?? {}),
                       ...branch.characterPatch
                     };
                   }
@@ -60,7 +60,7 @@ export const hookSchemasToMechanics = (schemas: HookSchema[]): Mechanic[] => {
               }
 
               // Return undefined if there's nothing to patch
-              if (!patch.worldPatch && !patch.characterPatch) return;
+              if (!patch.worldPatch && !patch.characterState) return;
               return patch;
             }
           }
@@ -73,9 +73,9 @@ export const hookSchemasToMechanics = (schemas: HookSchema[]): Mechanic[] => {
             onSessionStart: async (_ctx: BaseContext): Promise<StatePatch | void> => {
               const patch: StatePatch = {
                 worldPatch: schema.worldPatch ? { ...schema.worldPatch } : undefined,
-                characterPatch: schema.characterPatch ? { ...schema.characterPatch } : undefined
+                characterState: schema.characterPatch ? { ...schema.characterPatch } : undefined
               };
-              if (!patch.worldPatch && !patch.characterPatch) return;
+              if (!patch.worldPatch && !patch.characterState) return;
               return patch;
             }
           }
@@ -91,9 +91,9 @@ export const hookSchemasToMechanics = (schemas: HookSchema[]): Mechanic[] => {
 
               const patch: StatePatch = {
                 worldPatch: schema.worldPatch ? { ...schema.worldPatch } : undefined,
-                characterPatch: schema.characterPatch ? { ...schema.characterPatch } : undefined
+                characterState: schema.characterPatch ? { ...schema.characterPatch } : undefined
               };
-              if (!patch.worldPatch && !patch.characterPatch) return;
+              if (!patch.worldPatch && !patch.characterState) return;
               return patch;
             }
           }

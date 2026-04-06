@@ -55,26 +55,22 @@ model CampaignMember {
 
 /// Session IS the character — creating a session creates a new character run.
 /// When the character dies, the session ends and a new one can be started.
+/// All character data (HP, level, attributes, inventory) lives in characterState.
 model Session {
-  id                  String        @id @default(uuid()) @db.Uuid
-  campaignId          String        @db.Uuid
-  userId              String?       @db.Uuid
-  characterName       String        @default("")
-  characterClass      String        @default("")
-  characterLevel      Int           @default(1)
-  characterHp         Int           @default(100)
-  characterAttributes Json          @default("{}")
-  characterInventory  Json          @default("{}")
-  /// Character-local state: personal flags, session-ephemeral values, etc.
-  /// This is the character's private context — never shared across sessions.
-  characterState      Json          @default("{}")
-  status              String
-  startedAt           DateTime      @default(now())
-  endedAt             DateTime?
-  summary             String?
-  archive             String?       @db.Text
-  events              EventLog[]
-  actionQueue         ActionQueue[]
+  id             String        @id @default(uuid()) @db.Uuid
+  campaignId     String        @db.Uuid
+  userId         String?       @db.Uuid
+  characterName  String        @default("")
+  characterClass String        @default("")
+  /// Unified character state: hp, level, attributes, inventory + ephemeral session data
+  characterState Json          @default("{}")
+  status         String
+  startedAt      DateTime      @default(now())
+  endedAt        DateTime?
+  summary        String?
+  archive        String?       @db.Text
+  events         EventLog[]
+  actionQueue    ActionQueue[]
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)

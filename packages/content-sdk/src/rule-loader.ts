@@ -5,12 +5,12 @@
  * set, append, remove, endSession) when an optional condition is met.
  *
  * Target path prefixes determine which state store is written to:
- *   "characterState.<key>" → characterPatch (session-local, private)
+ *   "characterState.<key>" → characterState (session-local, private)
  *   "worldState.<key>"     → worldPatch     (shared campaign state)
  *
  * Condition keys read from the merged worldState context (characterState
  * is merged into worldState before hooks run, so "characterState.hp" is
- * readable as ctx.worldState.hp — but written back to characterPatch).
+ * readable as ctx.worldState.hp — but written back to characterState).
  */
 
 import type { RuleSchema, RuleCondition, RuleEffect } from "@opendungeon/shared";
@@ -55,7 +55,7 @@ const evaluateCondition = (
 
 type PatchPair = {
   worldPatch: Record<string, unknown>;
-  characterPatch: Record<string, unknown>;
+  characterState: Record<string, unknown>;
 };
 
 const applyEffect = (effect: RuleEffect, patches: PatchPair): string | undefined => {
@@ -79,7 +79,7 @@ const applyEffect = (effect: RuleEffect, patches: PatchPair): string | undefined
     return undefined;
   }
 
-  const patch = isCharacter ? patches.characterPatch : patches.worldPatch;
+  const patch = isCharacter ? patches.characterState : patches.worldPatch;
 
   switch (effect.op) {
     case "increment": {
@@ -153,7 +153,7 @@ export const ruleSchemasToMechanics = (schemas: RuleSchema[]): Mechanic[] => {
         // Build mutable patch copies seeded from existing result patches
         const patches: PatchPair = {
           worldPatch: { ...(result.worldPatch ?? {}) },
-          characterPatch: { ...(result.characterPatch ?? {}) }
+          characterState: { ...(result.characterState ?? {}) }
         };
 
         let endSessionReason: string | undefined;
@@ -168,7 +168,7 @@ export const ruleSchemasToMechanics = (schemas: RuleSchema[]): Mechanic[] => {
         return {
           ...result,
           worldPatch: Object.keys(patches.worldPatch).length > 0 ? patches.worldPatch : result.worldPatch,
-          characterPatch: Object.keys(patches.characterPatch).length > 0 ? patches.characterPatch : result.characterPatch,
+          characterState: Object.keys(patches.characterState).length > 0 ? patches.characterState : result.characterState,
           ...(endSessionReason !== undefined
             ? { endSession: endSessionReason as import("@opendungeon/shared").SessionEndReason }
             : {})

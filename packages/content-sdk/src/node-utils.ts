@@ -206,7 +206,7 @@ export const loadContextModulesDirSync = (dirPath: string): DungeonMasterContext
  * });
  * ```
  */
-const VALID_RESOURCE_SOURCES = new Set(["character", "characterState", "worldState"]);
+const VALID_RESOURCE_SOURCES = new Set(["characterState", "worldState"]);
 const VALID_RESOURCE_TYPES = new Set(["number", "text", "list", "boolean"]);
 
 const isResourceSchema = (value: unknown): value is ResourceSchema => {

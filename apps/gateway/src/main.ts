@@ -79,10 +79,10 @@ type SuggestedAction = {
 /**
  * Session IS the character.
  * Creating a session creates a new character run within a campaign.
- * When the character dies the session ends; a new session = new character.
+ * When the session ends all character data is cleared.
  *
- * worldState is NO LONGER stored here. The canonical shared world lives in
- * WorldStore (WorldFact table). Character-local context lives in characterState.
+ * All character data (HP, level, attributes, inventory + ephemeral state)
+ * lives in characterState. No persistent progress between sessions.
  */
 type Session = {
   id: string;
@@ -90,14 +90,7 @@ type Session = {
   userId: string;
   characterName: string;
   characterClass: string;
-  characterLevel: number;
-  characterHp: number;
-  characterAttributes: Record<string, unknown>;
-  characterInventory: Record<string, unknown>;
-  /**
-   * Character-local state: session-ephemeral flags, personal quest markers, etc.
-   * Assembled with worldPatch from mechanics. Never shared across sessions.
-   */
+  /// Unified character state: hp, level, attributes, inventory + ephemeral data
   characterState: Record<string, unknown>;
   status: "active" | "ended";
   endReason?: SessionEndReason;
@@ -247,7 +240,7 @@ const initPersistence = async (db: InMemoryDb): Promise<PersistenceContext> => {
     db.campaignsById.set(loadedCampaign.id, loadedCampaign);
   }
 
-  // Load sessions (characterState replaces worldState)
+  // Load sessions (characterState is the unified character state)
   const sessions = await prisma.session.findMany();
   for (const session of sessions) {
     const campaign = db.campaignsById.get(session.campaignId);
@@ -258,10 +251,6 @@ const initPersistence = async (db: InMemoryDb): Promise<PersistenceContext> => {
       userId: session.userId ?? "",
       characterName: session.characterName,
       characterClass: session.characterClass,
-      characterLevel: session.characterLevel,
-      characterHp: session.characterHp,
-      characterAttributes: parseJsonRecord(session.characterAttributes),
-      characterInventory: parseJsonRecord(session.characterInventory),
       characterState: parseJsonRecord(session.characterState),
       status: session.status === "ended" ? "ended" : "active",
       events: [],
@@ -371,10 +360,6 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       where: { id: session.id },
       update: {
         status: session.status,
-        characterLevel: session.characterLevel,
-        characterHp: session.characterHp,
-        characterAttributes: JSON.parse(JSON.stringify(session.characterAttributes)) as object,
-        characterInventory: JSON.parse(JSON.stringify(session.characterInventory)) as object,
         characterState: JSON.parse(JSON.stringify(session.characterState)) as object,
         summary: session.summary ?? null,
         endedAt: session.status === "ended" ? new Date() : null
@@ -385,10 +370,6 @@ export const buildApp = async (): Promise<FastifyInstance> => {
         userId: session.userId || null,
         characterName: session.characterName,
         characterClass: session.characterClass,
-        characterLevel: session.characterLevel,
-        characterHp: session.characterHp,
-        characterAttributes: JSON.parse(JSON.stringify(session.characterAttributes)) as object,
-        characterInventory: JSON.parse(JSON.stringify(session.characterInventory)) as object,
         characterState: JSON.parse(JSON.stringify(session.characterState)) as object,
         status: session.status,
         summary: session.summary ?? null,
@@ -438,10 +419,6 @@ export const buildApp = async (): Promise<FastifyInstance> => {
         userId: s.userId,
         characterName: s.characterName,
         characterClass: s.characterClass,
-        characterLevel: s.characterLevel,
-        characterHp: s.characterHp,
-        characterAttributes: s.characterAttributes,
-        characterInventory: s.characterInventory,
         characterState: s.characterState,
         status: s.status,
         summary: s.summary,
@@ -469,11 +446,6 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
       if (mutation.characterState !== undefined) {
         session.characterState = mutation.characterState;
-      }
-      if (mutation.characterHp !== undefined) session.characterHp = mutation.characterHp;
-      if (mutation.characterLevel !== undefined) session.characterLevel = mutation.characterLevel;
-      if (mutation.characterInventory !== undefined) {
-        session.characterInventory = mutation.characterInventory;
       }
       if (mutation.summary !== undefined) session.summary = mutation.summary;
       if (mutation.suggestedActions) session.suggestedActions = mutation.suggestedActions;
@@ -794,12 +766,12 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     const sessionId = randomUUID();
     const template = runtime.getCharacterTemplate(parsed.data.className);
 
-    const characterInfo = {
-      id: sessionId,
-      name: parsed.data.name,
-      className: parsed.data.className,
+    // Initial character state from template
+    let initialCharacterState: Record<string, unknown> = {
+      hp: template.hp,
       level: template.level,
-      hp: template.hp
+      attributes: template.attributes ?? {},
+      inventory: []
     };
 
     // Read current canonical world state for hook context
@@ -810,7 +782,8 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       tenantId: campaign.ownerId,
       campaignId: campaign.id,
       playerId: userId,
-      character: characterInfo,
+      characterClass: parsed.data.className,
+      characterState: initialCharacterState,
       worldState: currentWorldState
     });
 
@@ -818,19 +791,23 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       await worldStore.applyPatch(campaign.id, charPatch.worldPatch, sessionId);
     }
 
+    // Merge characterState from hooks
+    if (charPatch.characterState) {
+      initialCharacterState = { ...initialCharacterState, ...charPatch.characterState };
+    }
+
     // Re-read world after character creation patch
     const worldAfterChar = charPatch.worldPatch
       ? { ...currentWorldState, ...charPatch.worldPatch }
       : currentWorldState;
 
-    // Run onSessionStart hooks — worldPatch goes to canonical world,
-    // any session-ephemeral state (sessionLoot, nearExit) also goes to world
-    // (game modules that want session isolation should use characterPatch)
+    // Run onSessionStart hooks
     const sessionPatch = await runtime.startSession({
       tenantId: campaign.ownerId,
       campaignId: campaign.id,
       sessionId,
       playerId: userId,
+      characterState: initialCharacterState,
       worldState: worldAfterChar
     });
 
@@ -838,11 +815,10 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       await worldStore.applyPatch(campaign.id, sessionPatch.worldPatch, sessionId);
     }
 
-    // Merge characterPatch from both lifecycle hooks into initial character state
-    const initialCharacterState: Record<string, unknown> = {
-      ...(charPatch.characterPatch ?? {}),
-      ...(sessionPatch.characterPatch ?? {})
-    };
+    // Merge characterState from session start hooks
+    if (sessionPatch.characterState) {
+      initialCharacterState = { ...initialCharacterState, ...sessionPatch.characterState };
+    }
 
     const session: Session = {
       id: sessionId,
@@ -850,10 +826,6 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       userId,
       characterName: parsed.data.name,
       characterClass: parsed.data.className,
-      characterLevel: template.level,
-      characterHp: template.hp,
-      characterAttributes: template.attributes ?? {},
-      characterInventory: {},
       characterState: initialCharacterState,
       status: "active",
       events: [],
@@ -868,7 +840,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       characterId: session.id,
       name: session.characterName,
       className: session.characterClass,
-      level: session.characterLevel,
+      level: session.characterState.level,
       campaignId: campaign.id,
       playerId: userId
     });
@@ -881,8 +853,8 @@ export const buildApp = async (): Promise<FastifyInstance> => {
         character: {
           name: session.characterName,
           className: session.characterClass,
-          level: session.characterLevel,
-          hp: session.characterHp
+          level: session.characterState.level,
+          hp: session.characterState.hp
         },
         status: session.status,
         createdAt: session.createdAt
@@ -913,8 +885,8 @@ export const buildApp = async (): Promise<FastifyInstance> => {
         character: {
           name: s.characterName,
           className: s.characterClass,
-          level: s.characterLevel,
-          hp: s.characterHp
+          level: s.characterState.level,
+          hp: s.characterState.hp
         },
         status: s.status,
         endReason: s.endReason ?? null,
@@ -1073,8 +1045,8 @@ export const buildApp = async (): Promise<FastifyInstance> => {
         character: {
           name: session.characterName,
           className: session.characterClass,
-          level: session.characterLevel,
-          hp: session.characterHp
+          level: session.characterState.level,
+          hp: session.characterState.hp
         },
         status: session.status,
         endReason: session.endReason ?? null,

@@ -23,15 +23,15 @@ export const locationMechanic = defineMechanic({
      * This is personal — other players start elsewhere in the same world.
      */
     onCharacterCreated: async (ctx) => {
-      const startLocation = CLASS_STARTS[ctx.character.className] ?? DEFAULT_START;
+      const startLocation = CLASS_STARTS[ctx.characterClass] ?? DEFAULT_START;
       return {
-        characterPatch: { location: startLocation }
+        characterState: { location: startLocation }
       };
     },
 
     /**
      * When the DM moves the player (worldPatch.location), intercept it:
-     * remove it from the shared worldPatch and place it in characterPatch
+     * remove it from the shared worldPatch and place it in characterState
      * so location stays personal and doesn't overwrite other players' position.
      */
     onActionResolved: async (result) => {
@@ -42,7 +42,7 @@ export const locationMechanic = defineMechanic({
       return {
         ...result,
         worldPatch: Object.keys(restWorldPatch).length > 0 ? restWorldPatch : undefined,
-        characterPatch: { ...result.characterPatch, location: newLocation }
+        characterState: { ...result.characterState, location: newLocation }
       };
     }
   }
