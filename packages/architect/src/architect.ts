@@ -64,10 +64,19 @@ export interface WorldbuilderTurnResult {
   requiresConfirmation: boolean;
   /** Operations the LLM produced but that failed validation — for debug display */
   droppedOperationCount: number;
+  /** Dropped operation diagnostics to help debug invalid proposals */
+  droppedOperations: WorldbuilderDroppedOperation[];
   /** Optional operation-level confidence metadata from the model reviewer pass */
   operationAssessments: WorldbuilderOperationAssessment[];
   /** Optional reviewer summary from second-pass critique */
   reviewerSummary?: string;
+}
+
+export interface WorldbuilderDroppedOperation {
+  index: number;
+  op?: string;
+  path?: string;
+  reason: string;
 }
 
 export interface WorldbuilderOperationAssessment {
@@ -105,6 +114,49 @@ export class ArchitectRuntime {
     this.temperature = options.temperature ?? 0.1;
     this.maxJsonRepairAttempts = options.maxJsonRepairAttempts ?? 2;
     this.maxOutputTokens = options.maxOutputTokens ?? 8192;
+  }
+
+  private async repairWorldbuilderDraft(input: {
+    systemWithContext: string;
+    userMessage: string;
+    candidateRaw: string;
+    droppedOperations: WorldbuilderDroppedOperation[];
+  }): Promise<string> {
+    let candidateObj: Record<string, unknown>;
+    try {
+      candidateObj = parseJsonObject(input.candidateRaw);
+    } catch {
+      return input.candidateRaw;
+    }
+
+    const messages: ChatMessage[] = [
+      { role: "system", content: WORLDBUILDER_REPAIR_PROMPT },
+      {
+        role: "user",
+        content: JSON.stringify(
+          {
+            task: "Repair invalid Worldbuilder operations so they pass strict operation schema validation.",
+            userMessage: input.userMessage,
+            architectureContext: input.systemWithContext,
+            candidate: candidateObj,
+            droppedOperations: input.droppedOperations
+          },
+          null,
+          2
+        )
+      }
+    ];
+
+    try {
+      const repairedRaw = await this.callWithRepair(messages, "Worldbuilder Repair");
+      const repairedObj = parseJsonObject(repairedRaw);
+      if (!("message" in repairedObj) && !("pendingOperations" in repairedObj)) {
+        return input.candidateRaw;
+      }
+      return repairedRaw;
+    } catch {
+      return input.candidateRaw;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -190,7 +242,23 @@ ${JSON.stringify(ctx.existingLore, null, 2)}`;
       userMessage: input.userMessage,
       draftRaw
     });
-    return this.parseWorldbuilderResult(reviewedRaw);
+
+    let result = this.parseWorldbuilderResult(reviewedRaw);
+
+    if (result.pendingOperations.length === 0 && result.droppedOperationCount > 0) {
+      const repairedRaw = await this.repairWorldbuilderDraft({
+        systemWithContext,
+        userMessage: input.userMessage,
+        candidateRaw: reviewedRaw,
+        droppedOperations: result.droppedOperations
+      });
+      const repaired = this.parseWorldbuilderResult(repairedRaw);
+      if (repaired.pendingOperations.length > 0 || repaired.droppedOperationCount < result.droppedOperationCount) {
+        result = repaired;
+      }
+    }
+
+    return result;
   }
 
   private async reviewWorldbuilderDraft(input: {
@@ -244,14 +312,28 @@ ${JSON.stringify(ctx.existingLore, null, 2)}`;
 
     const rawOps = Array.isArray(obj.pendingOperations) ? (obj.pendingOperations as unknown[]) : [];
     const pendingOperations: ArchitectOperation[] = [];
+    const droppedOperations: WorldbuilderDroppedOperation[] = [];
     let droppedOperationCount = 0;
 
-    for (const item of rawOps) {
-      const op = validateArchitectOperation(item, undefined);
+    for (let i = 0; i < rawOps.length; i += 1) {
+      const item = rawOps[i];
+      let reason = "Operation failed schema validation";
+      const op = validateArchitectOperation(item, undefined, (r) => {
+        reason = r;
+      });
       if (op) {
         pendingOperations.push(op);
       } else {
         droppedOperationCount++;
+        const src = item && typeof item === "object" && !Array.isArray(item)
+          ? (item as Record<string, unknown>)
+          : undefined;
+        droppedOperations.push({
+          index: i,
+          op: typeof src?.op === "string" ? src.op : undefined,
+          path: typeof src?.path === "string" ? src.path : undefined,
+          reason
+        });
       }
     }
 
@@ -268,6 +350,7 @@ ${JSON.stringify(ctx.existingLore, null, 2)}`;
       pendingOperations,
       requiresConfirmation,
       droppedOperationCount,
+      droppedOperations,
       operationAssessments,
       reviewerSummary
     };
@@ -334,6 +417,24 @@ Return JSON object only with fields:
   ]
 }`;
 
+const WORLDBUILDER_REPAIR_PROMPT = `You repair Worldbuilder JSON outputs for strict operation-schema validity.
+
+Rules:
+- Return JSON object only (no markdown).
+- Preserve user intent and keep changes minimal.
+- Fix only invalid operations and malformed fields.
+- Remove operations that cannot be safely repaired.
+- Ensure each operation strictly matches allowed schema.
+
+Return:
+{
+  "message": "string",
+  "pendingOperations": [ ... ],
+  "requiresConfirmation": true,
+  "reviewerSummary": "optional",
+  "operationAssessments": [ ... ]
+}`;
+
 const WORLD_FACT_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z0-9_-]+)*$/;
 const MAX_WORLD_FACT_KEY_LENGTH = 120;
 
@@ -392,15 +493,25 @@ const parseOperationAssessments = (
   return out;
 };
 
-const validateArchitectOperation = (item: unknown, sessionId: string | undefined): ArchitectOperation | null => {
-  if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+const validateArchitectOperation = (
+  item: unknown,
+  sessionId: string | undefined,
+  onError?: (reason: string) => void
+): ArchitectOperation | null => {
+  const fail = (reason: string): null => {
+    onError?.(reason);
+    return null;
+  };
+
+  if (!item || typeof item !== "object" || Array.isArray(item)) return fail("Operation must be a JSON object");
   const obj = item as Record<string, unknown>;
+  if (typeof obj.op !== "string" || !obj.op.trim()) return fail("Operation is missing string field `op`");
 
   switch (obj.op) {
     case "upsert_lore": {
-      if (typeof obj.entityName !== "string" || !obj.entityName.trim()) return null;
-      if (typeof obj.type !== "string" || !VALID_LORE_TYPES.has(obj.type)) return null;
-      if (typeof obj.description !== "string" || !obj.description.trim()) return null;
+      if (typeof obj.entityName !== "string" || !obj.entityName.trim()) return fail("upsert_lore requires non-empty `entityName`");
+      if (typeof obj.type !== "string" || !VALID_LORE_TYPES.has(obj.type)) return fail("upsert_lore `type` must be one of NPC|Location|Item|Faction|Lore");
+      if (typeof obj.description !== "string" || !obj.description.trim()) return fail("upsert_lore requires non-empty `description`");
       return {
         op: "upsert_lore",
         entityName: obj.entityName.trim(),
@@ -411,31 +522,31 @@ const validateArchitectOperation = (item: unknown, sessionId: string | undefined
     }
 
     case "set_world_fact": {
-      if (typeof obj.key !== "string" || !obj.key.trim()) return null;
+      if (typeof obj.key !== "string" || !obj.key.trim()) return fail("set_world_fact requires non-empty `key`");
       const key = obj.key.trim();
-      if (key.length > MAX_WORLD_FACT_KEY_LENGTH) return null;
-      if (!WORLD_FACT_KEY_PATTERN.test(key)) return null;
-      if (obj.value === undefined) return null;
+      if (key.length > MAX_WORLD_FACT_KEY_LENGTH) return fail("set_world_fact `key` is too long");
+      if (!WORLD_FACT_KEY_PATTERN.test(key)) return fail("set_world_fact `key` has invalid format");
+      if (obj.value === undefined) return fail("set_world_fact requires `value`");
       const sourceTag = obj.sourceTag === "developer" ? "developer" : "chronicler";
       return { op: "set_world_fact", key, value: obj.value, sourceTag };
     }
 
     case "append_session_archive": {
       const sid = typeof obj.sessionId === "string" ? obj.sessionId : (sessionId ?? "");
-      if (!sid) return null;
-      if (typeof obj.text !== "string" || !obj.text.trim()) return null;
+      if (!sid) return fail("append_session_archive requires `sessionId` in worldbuilder mode");
+      if (typeof obj.text !== "string" || !obj.text.trim()) return fail("append_session_archive requires non-empty `text`");
       return { op: "append_session_archive", sessionId: sid, text: obj.text.trim() };
     }
 
     case "append_campaign_archive": {
-      if (typeof obj.text !== "string" || !obj.text.trim()) return null;
+      if (typeof obj.text !== "string" || !obj.text.trim()) return fail("append_campaign_archive requires non-empty `text`");
       return { op: "append_campaign_archive", text: obj.text.trim() };
     }
 
     case "create_milestone": {
-      if (typeof obj.title !== "string" || !obj.title.trim()) return null;
-      if (typeof obj.description !== "string" || !obj.description.trim()) return null;
-      if (typeof obj.milestoneType !== "string" || !VALID_MILESTONE_TYPES.has(obj.milestoneType)) return null;
+      if (typeof obj.title !== "string" || !obj.title.trim()) return fail("create_milestone requires non-empty `title`");
+      if (typeof obj.description !== "string" || !obj.description.trim()) return fail("create_milestone requires non-empty `description`");
+      if (typeof obj.milestoneType !== "string" || !VALID_MILESTONE_TYPES.has(obj.milestoneType)) return fail("create_milestone has invalid `milestoneType`");
       return {
         op: "create_milestone",
         title: obj.title.trim(),
@@ -446,8 +557,8 @@ const validateArchitectOperation = (item: unknown, sessionId: string | undefined
     }
 
     case "resolve_lore_conflict": {
-      if (typeof obj.entityName !== "string" || !obj.entityName.trim()) return null;
-      if (typeof obj.canonicalDescription !== "string" || !obj.canonicalDescription.trim()) return null;
+      if (typeof obj.entityName !== "string" || !obj.entityName.trim()) return fail("resolve_lore_conflict requires non-empty `entityName`");
+      if (typeof obj.canonicalDescription !== "string" || !obj.canonicalDescription.trim()) return fail("resolve_lore_conflict requires non-empty `canonicalDescription`");
       return {
         op: "resolve_lore_conflict",
         entityName: obj.entityName.trim(),
@@ -456,11 +567,11 @@ const validateArchitectOperation = (item: unknown, sessionId: string | undefined
     }
 
     case "write_file": {
-      if (typeof obj.path !== "string" || !obj.path.trim()) return null;
-      if (typeof obj.description !== "string") return null;
+      if (typeof obj.path !== "string" || !obj.path.trim()) return fail("write_file requires non-empty `path`");
+      if (typeof obj.description !== "string") return fail("write_file requires string `description`");
       // Basic safety: reject paths that try to escape the module root
       const p = obj.path.trim();
-      if (p.startsWith("/") || p.includes("..")) return null;
+      if (p.startsWith("/") || p.includes("..")) return fail("write_file `path` must stay inside module root");
       // LLMs sometimes return content as a parsed object instead of a JSON string.
       // Accept both: stringify objects, pass strings through as-is.
       let content: string;
@@ -469,7 +580,7 @@ const validateArchitectOperation = (item: unknown, sessionId: string | undefined
       } else if (obj.content !== null && typeof obj.content === "object") {
         content = JSON.stringify(obj.content, null, 2);
       } else {
-        return null;
+        return fail("write_file requires string/object `content`");
       }
       return {
         op: "write_file",
@@ -480,6 +591,6 @@ const validateArchitectOperation = (item: unknown, sessionId: string | undefined
     }
 
     default:
-      return null;
+      return fail(`Unsupported operation type: ${String(obj.op)}`);
   }
 };

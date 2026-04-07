@@ -762,6 +762,14 @@ export const runArchitectCli = async (args: string[]): Promise<void> => {
 
         if (result.droppedOperationCount > 0) {
           println(color(`  ! ${result.droppedOperationCount} operation(s) from LLM response failed validation and were dropped.`, c.yellow));
+          const details = result.droppedOperations.slice(0, 5);
+          for (const drop of details) {
+            const ref = drop.path ? `${drop.op ?? "operation"} ${drop.path}` : (drop.op ?? `operation #${drop.index + 1}`);
+            println(color(`    - ${ref}: ${drop.reason}`, c.dim));
+          }
+          if (result.droppedOperations.length > details.length) {
+            println(color(`    - ... and ${result.droppedOperations.length - details.length} more`, c.dim));
+          }
         }
 
         if (result.pendingOperations.length === 0) {
