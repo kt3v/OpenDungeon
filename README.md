@@ -1,32 +1,36 @@
 # OpenDungeon
+**The AI-Native Engine for Emergent Tabletop Worlds.**
 
-The AI-Native Engine for Emergent Tabletop Worlds.
-
-The engine handles the hard parts — LLM orchestration, multiplayer world state, session management, persistence. You handle the fun parts — mechanics, lore, characters, rules.
+OpenDungeon is not just a wrapper for LLMs. It is a framework that treats game lore, rules, and state as a living API for an AI Dungeon Master. It transforms the act of world-building into the act of programming—where your narrative design becomes the engine's logic.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
-## How it works
+## ⚡️ The Core Concept: Lore as Code
 
-Your game is a **game module** — a directory of JSON and Markdown files (optionally with TypeScript). The engine loads your module at startup and runs the turn pipeline.
+In traditional games, you write rigid dialogue trees. In OpenDungeon, you define the **laws of your universe**. Your game is a **Module**—a collection of Markdown and JSON files that the AI "inhales" to govern the world.
 
+The magic happens in the synergy of three layers:
+
+1. **Static Lore (The World Bible):** Deeply embedded world-building in Markdown. The AI doesn't just "remember" your lore; it uses it as a strict constraint for consistency.
+2. **Deterministic Mechanics (The Rules):** TypeScript tools for things that *must* be fair—combat calculations, loot tables, and XP. When the AI needs a "roll," it calls a real function, not a hallucination.
+3. **Generative Narrative (The DM):** The LLM bridges the gap, translating player intent into mechanic calls and narrative responses.
+
+### The Anatomy of a World
 ```
 OpenDungeon engine  ←  games/your-game/
    (this repo)            manifest.json
                           content/
-                            modules/     ← Routed Markdown gameplay context
-                            mechanics/   ← TypeScript for complex logic (optional)
-                            lore/        ← Static world-building
-                            indicators/  ← UI resource tiles
+                            modules/     ← Routed Markdown gameplay context (The "How")
+                            mechanics/   ← TypeScript logic for hard rules (The "Math")
+                            lore/        ← Static world-building (The "What")
+                            indicators/  ← UI resource tiles (The "View")
 ```
-
-The AI Dungeon Master receives the player's action, sees the list of available mechanics as tools, and decides: invoke a mechanic deterministically, or narrate freely. Players can write in any language or phrasing — the DM understands intent, not keywords.
 
 ---
 
-## Quick start
+## 🚀 Quick Start
 
 **Prerequisites:** Node.js 20+, Docker, pnpm
 
@@ -41,17 +45,15 @@ pnpm od start        # Launches gateway (:3001) and web UI (:3000)
 ```
 
 `pnpm od configure llm` includes presets for `Ollama`, `OpenAI`, `Anthropic`, `OpenRouter`, `Groq`, and `Together`.
-You can also copy ready-to-use provider templates from `env-profiles/`.
 
 ---
 
-## Building a game
+## 🛠 Building a Game
 
-OpenDungeon supports a **content-first control plane**: routed markdown context modules + deterministic TypeScript mechanics. Game modules live in the `games/` directory:
+OpenDungeon uses a **content-first control plane**. You don't code the game loop; you design the context.
 
-1. Run `pnpm od setup` and choose "Create a clean project".
-2. Add markdown guidance modules to `content/modules/`:
-
+### 1. Narrative Guidance (Modules)
+Define how specific scenarios work using routed markdown.
 ```markdown
 ---
 id: bargain
@@ -64,8 +66,8 @@ triggers: [bargain, haggle]
 - Success depends on reputation and roleplay quality.
 ```
 
-3. For exact logic, add TypeScript mechanics to `content/mechanics/`:
-
+### 2. Hard Logic (Mechanics)
+For exact results, use TypeScript.
 ```ts
 export const campMechanic = defineMechanic({
   id: "camp",
@@ -79,30 +81,22 @@ export const campMechanic = defineMechanic({
 });
 ```
 
-See [Creating a Game](docs/game-dev/creating-a-game.md) and [Mechanics Guide](docs/game-dev/mechanics-guide.md).
-
----
-
-## Setting / World Bible
-
-Define your world's lore, tone, and constraints in `content/setting.json`. This establishes the base world before any instructions:
-
+### 3. World Identity (Setting)
+Establish the base vibe and taboos in `content/setting.json`.
 ```json
 {
   "name": "Shadowrealm",
-  "era": "Medieval",
-  "realismLevel": "hard",
   "tone": "dark and mysterious",
   "taboos": ["No modern technology", "No resurrections"],
   "custom": { "currency": "Gold crowns" }
 }
 ```
 
-The setting is automatically injected into every DM prompt. For detailed world building, add Markdown files to `content/lore/`.
+See [Creating a Game](docs/game-dev/creating-a-game.md) and [Mechanics Guide](docs/game-dev/mechanics-guide.md).
 
 ---
 
-## Developer tooling (`pnpm od <command>`)
+## 🧰 Developer Tooling (`pnpm od <command>`)
 
 ```bash
 pnpm od setup                               First-time setup
@@ -122,7 +116,7 @@ pnpm od validate-module <dir>               Check module JSON/frontmatter integr
 
 ---
 
-## Documentation
+## 📚 Documentation
 
 - **Game Development**
   - [Creating a Game](docs/game-dev/creating-a-game.md) — structure and manifest
@@ -134,7 +128,7 @@ pnpm od validate-module <dir>               Check module JSON/frontmatter integr
 
 ---
 
-## Packages
+## 📦 Packages
 
 | Package | Purpose |
 |---------|---------|
