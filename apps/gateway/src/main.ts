@@ -675,8 +675,11 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     try { userId = requireUserId(request, db); }
     catch { return reply.code(401).send({ error: "UNAUTHORIZED" }); }
 
+    const currentModuleName = runtimeCtx.runtime.getManifest().name;
+
     const campaigns = [...db.campaignsById.values()]
       .filter((c) => c.memberIds.has(userId))
+      .filter((c) => c.moduleName === currentModuleName)
       .map((c) => ({
         id: c.id,
         title: c.title,
@@ -695,8 +698,11 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     try { userId = requireUserId(request, db); }
     catch { return reply.code(401).send({ error: "UNAUTHORIZED" }); }
 
+    const currentModuleName = runtimeCtx.runtime.getManifest().name;
+
     const campaigns = [...db.campaignsById.values()]
       .filter((c) => !c.memberIds.has(userId))
+      .filter((c) => c.moduleName === currentModuleName)
       .map((c) => ({
         id: c.id,
         title: c.title,
@@ -722,6 +728,9 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
     const campaign = db.campaignsById.get(campaignId.data);
     if (!campaign) return reply.code(404).send({ error: "CAMPAIGN_NOT_FOUND" });
+    if (campaign.moduleName !== runtimeCtx.runtime.getManifest().name) {
+      return reply.code(404).send({ error: "CAMPAIGN_NOT_FOUND" });
+    }
     if (!campaign.memberIds.has(userId)) return reply.code(403).send({ error: "FORBIDDEN" });
 
     // Always read from canonical store — never stale in-memory blob
@@ -752,6 +761,9 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
     const campaign = db.campaignsById.get(campaignId.data);
     if (!campaign) return reply.code(404).send({ error: "CAMPAIGN_NOT_FOUND" });
+    if (campaign.moduleName !== runtimeCtx.runtime.getManifest().name) {
+      return reply.code(404).send({ error: "CAMPAIGN_NOT_FOUND" });
+    }
 
     campaign.memberIds.add(userId);
     await persistCampaignMember(campaign.id, userId, "player");
@@ -794,6 +806,9 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
     const campaign = db.campaignsById.get(campaignId.data);
     if (!campaign) return reply.code(404).send({ error: "CAMPAIGN_NOT_FOUND" });
+    if (campaign.moduleName !== runtimeCtx.runtime.getManifest().name) {
+      return reply.code(404).send({ error: "CAMPAIGN_NOT_FOUND" });
+    }
     if (!campaign.memberIds.has(userId)) return reply.code(403).send({ error: "FORBIDDEN" });
 
     // Enforce max active sessions per account
@@ -925,6 +940,9 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
     const campaign = db.campaignsById.get(campaignId.data);
     if (!campaign) return reply.code(404).send({ error: "CAMPAIGN_NOT_FOUND" });
+    if (campaign.moduleName !== runtimeCtx.runtime.getManifest().name) {
+      return reply.code(404).send({ error: "CAMPAIGN_NOT_FOUND" });
+    }
     if (!campaign.memberIds.has(userId)) return reply.code(403).send({ error: "FORBIDDEN" });
 
     const sessions = [...db.sessionsById.values()]
