@@ -319,9 +319,7 @@ const createModuleFiles = ({ absTargetDir, packageName, contentSdkDependency, ty
       maxSummaryChars: 220
     },
     defaultSuggestedActions: [
-      { id: "look", label: "Look Around", prompt: "look around carefully" },
-      { id: "listen", label: "Listen", prompt: "listen for sounds" },
-      { id: "advance", label: "Advance", prompt: "move cautiously forward" }
+      { id: "look", label: "I open my eyes", prompt: "I open my eyes" }
     ]
   };
 
