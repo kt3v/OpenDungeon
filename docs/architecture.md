@@ -10,18 +10,16 @@ OpenDungeon separates engine runtime from game content. The engine loads your ga
 ┌──────────────────────────────────────────────────────┐
 │                   games/your-game/                   │
 │                                                      │
-│  Declarative mode (default)  │  TypeScript mode      │
-│  classes.json                │  src/index.ts         │
-│  dm.md + dm-config.json      │  src/mechanics/*.ts   │
-│  initial-state.json          │  dist/index.js        │
-│  modules/*.md                │                       │
-│                              │                       │
-│  indicators/         lore/                            │
-│  hp.json            factions.md                      │
-│  gold.json          locations.md                     │
-└──────────────────────────────┬───────────────────────┘
-                               │  GAME_MODULE_PATH
-┌──────────────────────────────▼───────────────────────┐
+│  classes.json        modules/*.md    lore/           │
+│  dm.md               indicators/    factions.md      │
+│  dm-config.json      hp.json        locations.md     │
+│  initial-state.json  gold.json                       │
+│                                                      │
+│  src/index.ts  ← optional TypeScript mechanics       │
+│  dist/index.js                                       │
+└──────────────────────────┬───────────────────────────┘
+                           │  GAME_MODULE_PATH
+┌──────────────────────────▼───────────────────────────┐
 │                   apps/gateway                       │
 │   module-loader · HTTP API · action queue · world store │
 ├──────────────────────────────────────────────────────┤
@@ -38,12 +36,12 @@ OpenDungeon separates engine runtime from game content. The engine loads your ga
 
 ### Module loading
 
-The gateway reads `manifest.json#entry`:
+The gateway always loads the declarative base (JSON/Markdown files), then optionally merges TypeScript mechanics on top. There is a single unified pipeline — the engine runtime receives the same `GameModule` interface regardless.
 
-- `"declarative"` → `loadDeclarativeGameModule(path)` assembles a `GameModule` from JSON/Markdown files in the directory. No import, no compilation.
-- `"dist/index.js"` (or any path) → dynamic `import()` of the compiled TypeScript entry. Full access to the engine's TypeScript API.
+`manifest.json#entry` controls whether TypeScript is loaded:
 
-Both paths produce the same `GameModule` interface. The engine runtime doesn't know or care which path was used.
+- `"declarative"` (or omitted, no TS file found) → declarative-only, no `import()` needed
+- `"dist/index.js"` (or any path) → dynamic `import()` of the compiled entry, its `mechanics` array is merged with any declarative mechanics
 
 ---
 

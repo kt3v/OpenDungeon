@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { access, readdir } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import { resolve, join, dirname } from "node:path";
-import { moduleManifestSchema, classesFileSchema, dmConfigFileSchema, initialStateFileSchema, hookSchema, ruleSchema } from "@opendungeon/shared";
+import { moduleManifestSchema, classesFileSchema, dmConfigFileSchema, initialStateFileSchema } from "@opendungeon/shared";
 import { runArchitectCli } from "./architect-cli.js";
 import { runArchitectAnalyze } from "./architect-analyze.js";
 import { runArchitectScaffold } from "./architect-scaffold.js";
@@ -146,44 +146,6 @@ try {
         if (!(err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT")) {
           errors.push(`initial-state.json: ${err instanceof Error ? err.message : String(err)}`);
         }
-      }
-
-      // hooks/*.json (optional)
-      const hooksDir = join(moduleDir, "hooks");
-      try {
-        const hookFiles = await readdir(hooksDir);
-        const jsonHooks = hookFiles.filter((f) => f.endsWith(".json"));
-        for (const file of jsonHooks) {
-          try {
-            const content = await readFile(join(hooksDir, file), "utf8");
-            hookSchema.parse(JSON.parse(content));
-            process.stdout.write(`✓ hooks/${file}\n`);
-            hasAny = true;
-          } catch (err) {
-            errors.push(`hooks/${file}: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        }
-      } catch {
-        // hooks/ dir absent — that's fine
-      }
-
-      // rules/*.json (optional)
-      const rulesDir = join(moduleDir, "rules");
-      try {
-        const ruleFiles = await readdir(rulesDir);
-        const jsonRules = ruleFiles.filter((f) => f.endsWith(".json"));
-        for (const file of jsonRules) {
-          try {
-            const content = await readFile(join(rulesDir, file), "utf8");
-            ruleSchema.parse(JSON.parse(content));
-            process.stdout.write(`✓ rules/${file}\n`);
-            hasAny = true;
-          } catch (err) {
-            errors.push(`rules/${file}: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        }
-      } catch {
-        // rules/ dir absent — that's fine
       }
 
       if (!hasAny && errors.length === 0) {
