@@ -48,7 +48,7 @@ export interface WorldbuilderModuleContext {
   existingLore: ChroniclerLoreEntry[];
   /** Absolute path to the game module root directory (undefined = no module loaded) */
   modulePath?: string;
-  /** Relative paths of existing game module files — skills/*.json, hooks/*.json, rules/*.json, lore/*.md */
+  /** Relative paths of existing game module files — modules/*.md, lore/*.md, indicators/*.json, etc. */
   existingFiles?: string[];
 }
 

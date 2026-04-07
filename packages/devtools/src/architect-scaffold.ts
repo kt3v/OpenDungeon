@@ -17,7 +17,7 @@ import { GameScaffolderRuntime } from "@opendungeon/architect";
 import type { ScaffoldInput } from "@opendungeon/architect";
 import { color, c, println, printError, printHeader } from "./lib/output.js";
 
-type TargetFile = "classes" | "dm" | "initial-state" | "hooks";
+type TargetFile = "classes" | "dm" | "initial-state";
 
 interface ScaffoldArgs {
   modulePath: string;
@@ -26,7 +26,7 @@ interface ScaffoldArgs {
   dryRun: boolean;
 }
 
-const SUPPORTED_TYPES: TargetFile[] = ["classes", "dm", "initial-state", "hooks"];
+const SUPPORTED_TYPES: TargetFile[] = ["classes", "dm", "initial-state"];
 
 const parseArgs = (argv: string[]): ScaffoldArgs | null => {
   let modulePath = process.cwd();
@@ -106,11 +106,11 @@ const prompt = async (question: string): Promise<string> => {
 
 export async function runArchitectScaffold(argv: string[]): Promise<void> {
   if (argv.includes("--help") || argv.includes("-h")) {
-    println("Usage: od architect scaffold [--module <path>] [--type classes|dm|initial-state|hooks|all] [--migrate] [--dry-run]");
+    println("Usage: od architect scaffold [--module <path>] [--type classes|dm|initial-state|all] [--migrate] [--dry-run]");
     println();
     println("Options:");
     println("  --module   Path to the game module directory (default: current directory)");
-    println("  --type     Which files to generate: classes, dm, initial-state, hooks, or all (default: all)");
+    println("  --type     Which files to generate: classes, dm, initial-state, or all (default: all)");
     println("  --migrate  Read existing TypeScript files and migrate them to JSON equivalents");
     println("  --dry-run  Show what would be generated without writing files");
     println();

@@ -16,7 +16,7 @@ export interface ScaffoldInput {
   /** Absolute path to the existing module (for context). */
   modulePath: string;
   /** Target files to generate or migrate. */
-  targetFiles: Array<"classes" | "dm" | "initial-state" | "hooks">;
+  targetFiles: Array<"classes" | "dm" | "initial-state">;
   /** Raw content of setting.json if it exists (for context). */
   settingJsonContent?: string;
   /** Raw content of src/content/classes.ts to migrate (if migrating). */
@@ -116,51 +116,6 @@ Rules:
 - Per-character state (inventory, HP) is set in hooks/onCharacterCreated
 `.trim();
 
-const HOOKS_FORMAT_SPEC = `
-## hooks/*.json format
-Each file defines one declarative mechanic hook.
-
-### onCharacterCreated (most common)
-\`\`\`json
-{
-  "id": "starting-gear",
-  "hook": "onCharacterCreated",
-  "characterPatch": { "gold": 10, "inventory": [] },
-  "classBranches": {
-    "Warrior": { "characterPatch": { "gold": 5, "inventory": [{"id": "sword"}] } },
-    "Mage": { "characterPatch": { "gold": 15, "inventory": [{"id": "staff"}] } }
-  }
-}
-\`\`\`
-
-### onSessionStart
-\`\`\`json
-{
-  "id": "session-reset",
-  "hook": "onSessionStart",
-  "worldPatch": { "sessionLoot": [], "nearExit": false }
-}
-\`\`\`
-
-### onSessionEnd
-\`\`\`json
-{
-  "id": "cleanup-on-death",
-  "hook": "onSessionEnd",
-  "reason": "player_death",
-  "worldPatch": { "deathCount": null }
-}
-\`\`\`
-
-Rules:
-- "id": unique snake_case identifier
-- "hook": one of "onCharacterCreated" | "onSessionStart" | "onSessionEnd"
-- "worldPatch": mutations to the shared campaign state
-- "characterPatch": mutations to the player's private session state
-- "classBranches": only for onCharacterCreated — class-specific overrides
-- "reason": only for onSessionEnd — fires only for this end reason
-`.trim();
-
 const SYSTEM_PROMPT = [
   "You are an OpenDungeon game module file generator.",
   "Your job is to generate or migrate declarative game module files (JSON + Markdown).",
@@ -168,7 +123,7 @@ const SYSTEM_PROMPT = [
   "",
   "Output format:",
   "Return a JSON object: { \"files\": [ { \"relativePath\": \"...\", \"content\": \"...\" } ], \"warnings\": [ \"...\" ] }",
-  "- relativePath: path relative to the module root (e.g. \"classes.json\", \"hooks/starting-gear.json\")",
+  "- relativePath: path relative to the module root (e.g. \"classes.json\")",
   "- content: the exact file contents as a string",
   "- warnings: any issues the developer should know about (non-fatal)",
   "",
@@ -182,9 +137,7 @@ const SYSTEM_PROMPT = [
   "",
   DM_FORMAT_SPEC,
   "",
-  INITIAL_STATE_FORMAT_SPEC,
-  "",
-  HOOKS_FORMAT_SPEC
+  INITIAL_STATE_FORMAT_SPEC
 ].join("\n");
 
 const JSON_REPAIR_PROMPT =
