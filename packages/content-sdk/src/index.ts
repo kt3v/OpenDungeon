@@ -61,6 +61,11 @@ export interface ActionResult {
    * Never bleeds into the shared world.
    */
   characterState?: Record<string, unknown>;
+  /**
+   * Player's current location. Personal state — each player has their own location
+   * even in shared campaigns. Updated when the DM moves the player.
+   */
+  location?: string;
   suggestedActions?: SuggestedAction[];
   summaryPatch?: DungeonMasterSummaryPatch;
   /** When set the engine will run the session-end pipeline after this turn. */
@@ -77,6 +82,8 @@ export interface StatePatch {
   worldPatch?: Record<string, unknown>;
   /** Character-local mutations — merged into this session's characterState. */
   characterState?: Record<string, unknown>;
+  /** Player's current location. Personal state for this session only. */
+  location?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +116,8 @@ export interface CharacterCreatedContext {
   characterClass: string;
   /** Initial character state from template — hooks can modify/extend it */
   characterState: Record<string, unknown>;
+  /** Starting location for this character — populated by the engine before hooks run */
+  location: string;
   worldState: Record<string, unknown>;
 }
 
@@ -372,8 +381,9 @@ export interface ResourceSchema {
    * Where the value lives in the state response:
    *   "characterState" → characterState  (unified character state: hp, level, etc.)
    *   "worldState"     → worldState      (shared campaign state)
+   *   "session"        → session         (session-level fields like location)
    */
-  source: "characterState" | "worldState";
+  source: "characterState" | "worldState" | "session";
   /**
    * Dot-path to the value within the source object.
    * Examples: "hp", "level", "gold", "inventory", "sessionLoot.length"

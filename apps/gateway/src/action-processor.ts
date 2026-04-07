@@ -47,6 +47,8 @@ export interface SessionSnapshot {
   userId: string;
   characterName: string;
   characterClass: string;
+  /// Player's current location - personal state, not shared across campaign
+  location: string;
   /// Unified character state: hp, level, attributes, inventory + ephemeral data
   characterState: Record<string, unknown>;
   status: "active" | "ended";
@@ -85,6 +87,7 @@ export interface ProcessorCallbacks {
     sessionId: string,
     mutation: {
       characterState?: Record<string, unknown>;
+      location?: string;
       summary?: string;
       suggestedActions?: Array<{ id: string; label: string; prompt: string }>;
       appendEvent: {
@@ -281,6 +284,7 @@ export class ActionProcessor {
         sessionId,
         playerId: session.userId,
         characterState: characterStateForTurn,
+        location: session.location,
         actionText,
         mechanicActionId,
         worldState: mergedWorldState,
@@ -358,6 +362,7 @@ export class ActionProcessor {
         // Commit session mutation (persists to DB and updates in-memory)
         await this.callbacks.commitSessionMutation(sessionId, {
           characterState: newCharacterState,
+          location: result.location,
           summary: result.summaryPatch?.shortSummary ?? session.summary,
           suggestedActions:
             result.suggestedActions && result.suggestedActions.length > 0

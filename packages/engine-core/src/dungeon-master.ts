@@ -30,6 +30,8 @@ export interface DmTurnInput {
   playerId: string;
   actionText: string;
   worldState: Record<string, unknown>;
+  /** Player's current location - personal state, not shared across campaign */
+  location: string;
   recentEvents: Array<{
     createdAt: string;
     playerId: string;
@@ -51,6 +53,8 @@ export interface DmTurnInput {
 export interface DmTurnResult {
   message: string;
   worldPatch?: Record<string, unknown>;
+  /** Player's updated location - personal state, not shared across campaign */
+  location?: string;
   summaryPatch?: DungeonMasterSummaryPatch;
   suggestedActions?: SuggestedAction[];
   /**
@@ -138,7 +142,8 @@ export class DungeonMasterRuntime {
             args: "tool-specific object"
           }
         ],
-        worldPatch: "object (optional, ignored when mechanicCall is set)",
+        location: "string (optional) — player's new location if they moved",
+        worldPatch: "object (optional, ignored when mechanicCall is set) — shared world facts only",
         summaryPatch: {
           shortSummary: "string (optional)",
           latestBeat: "string (optional)"
@@ -151,6 +156,7 @@ export class DungeonMasterRuntime {
         campaignTitle: input.campaignTitle,
         playerId: input.playerId,
         actionText: input.actionText,
+        location: input.location,
         summary: input.summary ?? "",
         contextualLore: input.contextualLore ?? "",
         worldState: worldStateForPrompt,
@@ -262,6 +268,11 @@ const parseDmResult = (
   const result: DmTurnResult = {
     message: message.trim()
   };
+
+  // Extract location if provided
+  if (typeof obj.location === "string" && obj.location.trim()) {
+    result.location = obj.location.trim();
+  }
 
   if (
     isRecord(obj.mechanicCall) &&
@@ -511,7 +522,8 @@ const getWorldStatePromptMaxBytes = (): number => {
 };
 
 const keyPriority = (key: string): number => {
-  if (key === "location") return 0;
+  // Note: key === "location" is no longer prioritized here as location is now
+  // a separate field in DmTurnInput/DmTurnResult, not part of worldState.
   if (key.startsWith("location.")) return 1;
   if (key.includes("summary") || key.includes("beat")) return 2;
   if (key.includes("hp") || key.includes("health") || key.includes("gold")) return 3;
@@ -565,8 +577,7 @@ const projectWorldStateForPrompt = (
     _contextTruncated: true,
     _contextMaxBytes: maxBytes,
     _contextRawBytes: rawBytes,
-    _contextOmittedKeys: omitted,
-    location: typeof worldState.location === "string" ? worldState.location : undefined
+    _contextOmittedKeys: omitted
   };
 };
 

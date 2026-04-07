@@ -90,6 +90,8 @@ type Session = {
   userId: string;
   characterName: string;
   characterClass: string;
+  /// Player's current location - personal state, not shared across campaign
+  location: string;
   /// Unified character state: hp, level, attributes, inventory + ephemeral data
   characterState: Record<string, unknown>;
   status: "active" | "ended";
@@ -251,6 +253,7 @@ const initPersistence = async (db: InMemoryDb): Promise<PersistenceContext> => {
       userId: session.userId ?? "",
       characterName: session.characterName,
       characterClass: session.characterClass,
+      location: session.location ?? "",
       characterState: parseJsonRecord(session.characterState),
       status: session.status === "ended" ? "ended" : "active",
       events: [],
@@ -360,6 +363,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       where: { id: session.id },
       update: {
         status: session.status,
+        location: session.location,
         characterState: JSON.parse(JSON.stringify(session.characterState)) as object,
         summary: session.summary ?? null,
         endedAt: session.status === "ended" ? new Date() : null
@@ -370,6 +374,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
         userId: session.userId || null,
         characterName: session.characterName,
         characterClass: session.characterClass,
+        location: session.location,
         characterState: JSON.parse(JSON.stringify(session.characterState)) as object,
         status: session.status,
         summary: session.summary ?? null,
@@ -419,6 +424,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
         userId: s.userId,
         characterName: s.characterName,
         characterClass: s.characterClass,
+        location: s.location,
         characterState: s.characterState,
         status: s.status,
         summary: s.summary,
@@ -446,6 +452,9 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
       if (mutation.characterState !== undefined) {
         session.characterState = mutation.characterState;
+      }
+      if (mutation.location !== undefined) {
+        session.location = mutation.location;
       }
       if (mutation.summary !== undefined) session.summary = mutation.summary;
       if (mutation.suggestedActions) session.suggestedActions = mutation.suggestedActions;
@@ -784,6 +793,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       playerId: userId,
       characterClass: parsed.data.className,
       characterState: initialCharacterState,
+      location: "", // Starting location - will be populated by engine/mechanics
       worldState: currentWorldState
     });
 
@@ -820,12 +830,16 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       initialCharacterState = { ...initialCharacterState, ...sessionPatch.characterState };
     }
 
+    // Get starting location from character creation hooks
+    const startingLocation = charPatch.location ?? "";
+
     const session: Session = {
       id: sessionId,
       campaignId: campaign.id,
       userId,
       characterName: parsed.data.name,
       characterClass: parsed.data.className,
+      location: startingLocation,
       characterState: initialCharacterState,
       status: "active",
       events: [],

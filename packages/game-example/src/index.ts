@@ -1,6 +1,5 @@
 import { defineMechanics } from "@opendungeon/content-sdk";
 import { extractionMechanic } from "./mechanics/extraction.js";
-import { locationMechanic } from "./mechanics/location.js";
 
 /**
  * TypeScript extension for OpenDungeon Classic.
@@ -12,5 +11,5 @@ import { locationMechanic } from "./mechanics/location.js";
  * stateful gameplay logic beyond what declarative files can express.
  */
 export default defineMechanics({
-  mechanics: [locationMechanic, extractionMechanic]
+  mechanics: [extractionMechanic]
 });

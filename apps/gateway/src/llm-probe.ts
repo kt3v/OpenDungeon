@@ -46,9 +46,8 @@ const run = async (): Promise<void> => {
     campaignTitle: "Probe Campaign",
     playerId: "00000000-0000-0000-0000-000000000003",
     actionText: "look around",
-    worldState: {
-      location: "dungeon_entrance"
-    },
+    worldState: {},
+    location: "dungeon_entrance",
     summary: "The party entered a forgotten dungeon.",
     recentEvents: []
   });

@@ -1,7 +1,7 @@
 {
   "id": "location",
   "label": "Location",
-  "source": "characterState",
+  "source": "session",
   "stateKey": "location",
   "type": "text",
   "defaultValue": "unknown"

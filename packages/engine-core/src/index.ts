@@ -46,6 +46,8 @@ export interface ExecuteTurnInput {
   playerId: string;
   /** Unified character state: hp, level, attributes, inventory + ephemeral data */
   characterState: Record<string, unknown>;
+  /** Player's current location - personal state, not shared across campaign */
+  location: string;
   actionText: string;
   /**
    * Explicit mechanic routing key: "<mechanicId>.<actionId>".
@@ -71,6 +73,8 @@ export interface CharacterCreatedInput {
   playerId: string;
   characterClass: string;
   characterState: Record<string, unknown>;
+  /** Starting location for this character */
+  location: string;
   worldState: Record<string, unknown>;
 }
 
@@ -133,11 +137,13 @@ export class EngineRuntime {
       playerId: input.playerId,
       characterClass: input.characterClass,
       characterState: input.characterState,
+      location: input.location,
       worldState: input.worldState
     };
 
     let worldPatch: Record<string, unknown> = {};
     let characterStatePatch: Record<string, unknown> = {};
+    let locationPatch: string | undefined = input.location;
 
     for (const mechanic of this.mechanics) {
       const fn = mechanic.hooks?.onCharacterCreated;
@@ -150,12 +156,20 @@ export class EngineRuntime {
       if (patch?.characterState) {
         characterStatePatch = { ...characterStatePatch, ...patch.characterState };
       }
+      if (patch?.location) {
+        locationPatch = patch.location;
+        ctx.location = patch.location;
+      }
     }
 
-    return {
+    const result: StatePatch = {
       worldPatch: Object.keys(worldPatch).length > 0 ? worldPatch : undefined,
       characterState: Object.keys(characterStatePatch).length > 0 ? characterStatePatch : undefined
     };
+    if (locationPatch !== input.location) {
+      result.location = locationPatch;
+    }
+    return result;
   }
 
   // -------------------------------------------------------------------------
@@ -345,6 +359,7 @@ export class EngineRuntime {
         playerId: input.playerId,
         actionText: input.actionText,
         worldState: input.worldState,
+        location: input.location,
         recentEvents: input.recentEvents,
         summary: input.summary,
         contextualLore: input.contextualLore,
@@ -368,6 +383,7 @@ export class EngineRuntime {
       const dmNarrativeResult: ActionResult = {
         message: dmResult.message,
         worldPatch: dmResult.worldPatch,
+        location: dmResult.location,
         summaryPatch: dmResult.summaryPatch,
         suggestedActions: dmResult.suggestedActions
       };

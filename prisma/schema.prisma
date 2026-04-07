@@ -62,6 +62,8 @@ model Session {
   userId         String?       @db.Uuid
   characterName  String        @default("")
   characterClass String        @default("")
+  /// Current player location - personal state, not shared across campaign
+  location       String        @default("")
   /// Unified character state: hp, level, attributes, inventory + ephemeral session data
   characterState Json          @default("{}")
   status         String
@@ -77,6 +79,7 @@ model Session {
 
   @@index([campaignId])
   @@index([campaignId, userId])
+  @@index([location])
 }
 
 /// Canonical world state — one row per (campaign, key).
