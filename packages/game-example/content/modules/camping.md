@@ -1,26 +1,43 @@
 ---
-id: camping
+id: resting
 priority: 60
 triggers:
-  - camp
   - rest
-  - campfire
+  - take break
+  - recover
 dependsOn:
   - module:exploration
 references:
   - world:safeToRest
-  - world:camp.lastOutcome
+  - world:rest.lastOutcome
 provides:
   - world:safeToRest
-  - world:camp.lastOutcome
+  - world:rest.lastOutcome
 when:
-  - survival
   - recovery
 ---
 
-## Camping Guidance
-- Camping is only valid in safe areas.
-- Mark `safeToRest: true` in `worldPatch` when the player reaches a defensible rest spot.
-- Track recent camp resolution in `worldPatch.camp.lastOutcome` using compact values like `safe_rest`, `disturbed`, `forced_move`.
-- Keep rest opportunities scarce in dangerous zones to preserve tension.
-- If a camp is disturbed, clear `safeToRest` and narrate the threat.
+## Rest Rules (Sprint)
+- Real rest on Sprint is almost impossible. Safe zones are rare and temporary.
+- Set `safeToRest: true` only in:
+  - Barricaded rooms with working atmosphere
+  - Cryocapsules not under Velocity's control
+  - Areas with disabled cameras (Velocity can't see)
+
+## Rest Risks
+- If players rest in unsafe zone, Velocity may:
+  - Send patrol to "check"
+  - Seal doors, blocking exit
+  - Turn on sirens or broadcast enemy sounds
+  - "Accidentally" disable gravity
+
+## Oxygen Recovery
+- In safe zones with atmosphere you can replenish oxygen.
+- Without oxygen players can survive in vacuum for limited time.
+- Velocity can control oxygen supply — he can be "generous" or refuse.
+
+## Rest Outcomes
+- `safe_rest` — rare full rest, HP recovery
+- `interrupted` — rest interrupted by noise or movement
+- `compromised` — position revealed, security lost
+- `velocity_mockery` — rest "allowed" but with mockery via intercom

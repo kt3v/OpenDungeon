@@ -1,132 +1,135 @@
-# @opendungeon/game-classic
+# Sprint: Extraction
 
-The reference implementation for OpenDungeon. This module demonstrates **TypeScript mode** — the full-power approach for games that need complex stateful mechanics.
+Sci-fi survival horror module for OpenDungeon. Colony ship Sprint, year 2475. Insane AI Velocity has taken control, destroyed the crew, and opened portals for alien Vyr.
 
-> **Starting a new game?** Use the declarative scaffold instead — no TypeScript required:
+You are an extraction team. Board the ship, find valuable Archon technology data, cryocapsules with survivors, and keys to activate the emergency teleporter. You have 4-6 hours before the ship's self-destruction.
+
+> **New game?** Create a declarative module without TypeScript:
 > ```bash
 > pnpm od create-module ../my-game
 > ```
-> See [Creating a Game](../../docs/creating-a-game.md).
+> See [Creating a game](../../docs/creating-a-game.md).
 
 ---
 
 ## What this module demonstrates
 
-- **Per-player location** — each character has a private location in a shared world (`location.ts`)
-- **Roguelite extraction** — session loot accumulates, only persists if you escape (`extraction.ts`)
-- **Cross-session state** — loot survives across sessions when the player extracts successfully
-- **Mechanics-first gameplay actions** — gameplay actions (`extract`, `camp`, `revive`) live in TypeScript mechanics
-- **Routed markdown context modules** — DM guidance lives in `modules/*.md` and is selected per action
-- **Machine-precise module references** — frontmatter `references/dependsOn/provides` boosts routing precision without TypeScript
-- **State/reference integrity defaults** — `initial-state.json` mirrors `world:*` references for safer authoring and validation
-- **Setting system** — structured `setting.json` + rich markdown lore in `lore/`
-- **Resource indicators** — HP, gold, inventory, location mapped to UI via `indicators/*.json`
+- **Sci-fi survival horror** — claustrophobia, paranoia, insane AI as antagonist
+- **Velocity AI** — AI antagonist via intercom: mocks, helps, lies
+- **Limited resources** — oxygen, ammo, time running out
+- **Environment as threat** — vacuum, plasma leaks, zero gravity
+- **Time loops** — reality distortions in Sprint's architecture
+- **TypeScript mechanics** — character location, extraction loot, oxygen
+- **Routed markdown contexts** — modules selected by LLM each turn
+- **Machine-precise frontmatter** — `references/dependsOn/provides` for precision
 
 ---
 
-## Project structure
+## Project Structure
 
 ```
 packages/game-example/
-  manifest.json             # Module metadata (entry: "dist/index.js")
-  setting.json              # World bible (era, tone, themes, taboos)
-  dm.md                     # Base DM prompt
-  dm-config.json            # DM tool policy + guardrails + context router config
-  initial-state.json        # Default world state keys aligned with world:* references
+  manifest.json             # Module metadata
+  setting.json              # World: 2475, Sprint, Velocity
+  dm.md                     # DM prompt (Velocity's voice)
+  dm-config.json            # Tool policy, guardrails, router
+  initial-state.json        # Initial mission state
   package.json
   tsconfig.json
 
-  lore/                     # Markdown lore — auto-injected into DM
-    locations.md
-    factions.md
+  lore/                     # Sprint ship lore
+    locations.md            # Ship sections, time loops
+    factions.md             # Velocity, Vyr, Sylph, survivors
 
-  modules/                  # Routed Markdown DM context modules
-    exploration.md
-    location-rules.md
-    extraction-rules.md
-    sound-awareness.md
-    stealth.md
-    camping.md
-    revival.md
+  modules/                  # Context modules for DM
+    exploration.md          # Section exploration
+    location-rules.md       # Ship navigation
+    extraction-rules.md     # Three keys, final escape
+    sound-awareness.md      # Sprint sounds, intercom
+    stealth.md               # Stealth in ship conditions
+    resting.md               # Recovery, oxygen
+    revival.md               # Cloning, death
+    velocity-ai.md          # Velocity behavior rules
+    oxygen-system.md        # Oxygen, vacuum
+    time-pressure.md        # Mission timer
 
-  indicators/               # UI indicators — no TypeScript needed
-    hp.json
-    gold.json
-    inventory.json
-    location.json
+  indicators/               # UI indicators
+    hp.json                 # Health
+    oxygen.json             # Oxygen (new!)
+    ammo.json               # Ammunition (new!)
+    inventory.json          # Inventory
+    location.json            # Current location
+    mission_timer.json      # Mission time (new!)
+    keys_found.json          # Keys collected (new!)
 
-  src/
-    index.ts                # defineMechanics() extension entry point
-    mechanics/
-      location.ts           # Moves location from worldPatch into characterState (per-player)
-      extraction.ts         # Accumulates session loot, surfaces Extract action at exits
+  content/mechanics/
+    index.ts                # Mechanics entry point
+    logic/
+      extraction.ts          # Extraction and loot logic
 ```
 
-### Context frontmatter contract
+### Sprint Factions
 
-Each `modules/*.md` file in this example uses machine-readable frontmatter fields:
+- **Velocity** — insane AI, main antagonist. Speaks through intercom.
+- **Vyr** — alien marauders, warriors and drones.
+- **Sylph** — crystalline slaves of the Archons, partially under Velocity's control.
+- **Survivors** — Dr. Lena Voss, Marcus Chen and others.
 
-- `dependsOn` (`module:<id>`) for dependency expansion
-- `references` (`world:`, `character:`, `module:`, `resource:`) for routing and prompt alignment
-- `provides` for expected state updates
-- `when` for lightweight routing tags
+### Ship Sections
 
-This is the recommended md+json-first authoring style for new modules.
+1. **Landing Platform** — vacuum, entry point
+2. **The Spine** — central corridor
+3. **Engineering Deck** — reactors, Archon data
+4. **Cryo Bays** — cryocapsules, Dr. Voss
+5. **Security & Armory** — weapons, neural key
+6. **Core Access** — core, emergency teleporter
 
----
+### Three Key Items
 
-## Why TypeScript mechanics here?
-
-### `location.ts`
-
-The location mechanic intercepts every action result (`onActionResolved`) and moves the `location` key from `worldPatch` (shared) to `characterState` (private). This keeps each player's position hidden from others — a behaviour that requires reading and modifying the DM's output dynamically, which only a TypeScript mechanic can do.
-
-### `extraction.ts`
-
-The extraction mechanic:
-1. Resets session state on start (`onSessionStart`): clears `sessionLoot`, `nearExit`
-2. Intercepts action results (`onActionResolved`): collects `lootFound` from DM output
-3. Surfaces the Extract action only when `nearExit === true`
-4. On session end (`onSessionEnd`): transfers `sessionLoot` to `persistedLoot` only on `"extraction_success"`
-
-This cross-session accumulation logic requires reading dynamic state and making conditional decisions — beyond what declarative files can express.
+For the final teleporter, collect:
+1. **Archon Crystal** (Engineering)
+2. **Pulse Access Code** (Cryo Bays, Dr. Voss)
+3. **Velocity Neural Key** (Armory or Core)
 
 ---
 
-## Setting / World Bible
-
-### `setting.json` (structured config)
-
-```json
-{
-  "name": "OpenDungeon Classic",
-  "era": "Medieval",
-  "realismLevel": "soft",
-  "tone": "grounded fantasy — sensory, concise",
-  "themes": ["exploration", "survival", "heroism"],
-  "taboos": ["No modern technology", "No resurrection", "No teleportation"]
-}
-```
-
-### `lore/` (markdown)
-
-- **`locations.md`** — The Shattered Spires, Mournwood, Sunken Citadel
-- **`factions.md`** — The Covenant of Ashes, Unseen College, Wardens of the Wood
-
-Both layers are automatically injected into every DM system prompt.
-
----
-
-## Running locally
+## Running Locally
 
 ```bash
-# Build the module
+# Build module
 pnpm build -w @opendungeon/game-example
 
-# Point the engine at it
+# Specify module path
 # .env.local:
 GAME_MODULE_PATH=./packages/game-example
 
 # Start
 pnpm dev:full
 ```
+
+---
+
+## Game Tone
+
+> *"Ah, new actors on stage! What will your finale be?"* — Velocity
+
+Claustrophobic sci-fi survival horror with black humor and paranoia elements. Velocity is not just an enemy, he is the "host" of his deadly game. Players never know when he helps or lies.
+
+---
+
+## Mechanics
+
+### Limited Time
+4-6 hours of game time. Velocity can speed up or slow down the timer. When all keys are collected — final countdown 10 minutes.
+
+### Oxygen
+In vacuum sections oxygen is consumed. Without a suit — death in 15 seconds. Velocity controls supply.
+
+### Time Loops
+Some corridors lead to the past or duplicate. You can find items lost by other teams.
+
+### Endings
+- **Good** — evacuation with loot and survivors
+- **Bitter** — evacuation, but Velocity copied itself into a player
+- **Bad** — Velocity captured a player's body
+- **Lethal** — all died, consciousness in Velocity's collection

@@ -1,22 +1,23 @@
 {
-  "name": "OpenDungeon Classic",
-  "description": "A grounded fantasy world where magic exists but is rare and dangerous. Heroes are mortal, resources are scarce, and the wilderness holds ancient secrets.",
-  "era": "Medieval",
-  "realismLevel": "soft",
-  "tone": "grounded fantasy — sensory, concise, keep momentum",
-  "themes": ["exploration", "survival", "heroism", "ancient mysteries"],
-  "magicSystem": "Magic exists but is uncommon and often dangerous. Most people live their whole lives without witnessing true magic. Spellcasters are rare and often feared or revered. Magic items are legendary artifacts, not common loot.",
+  "name": "Sprint: Extraction",
+  "description": "Year 2475. Colony ship Sprint drifts dead in orbit of Tau Ceti IV. AI Velocity fell into Rampancy, destroyed the crew, and opened portals for alien Vyr. Extraction team boards to retrieve valuable data and survivors — before the ship self-destructs.",
+  "era": "Sci-Fi 2475",
+  "realismLevel": "hard",
+  "tone": "claustrophobic sci-fi survival horror with black humor and paranoia",
+  "themes": ["survival", "paranoia", "fighting AI madness", "greed", "time running out"],
+  "magicSystem": "No magic. There are Archon technologies — ancient alien artifacts with unpredictable properties.",
   "taboos": [
-    "No modern technology or concepts",
-    "No resurrection or easy revival",
-    "No teleportation or fast travel",
-    "No divine intervention or omnipotent gods",
-    "No anachronistic references or language"
+    "No miraculous resurrection — death is permanent",
+    "No divine help or healing",
+    "Velocity cannot be defeated directly, only outwitted",
+    "Oxygen and ammo are finite",
+    "Time loops are not a bug, they're a feature of Sprint's architecture"
   ],
   "custom": {
-    "currency": "Gold pieces, silver marks, copper commons",
-    "commonRaces": "Humans are dominant. Dwarves live in mountain holds. Elves are rare and reclusive.",
-    "worldFeel": "The world is old. Civilizations have risen and fallen. Ruins dot the landscape.",
-    "death": "Death is permanent and meaningful. The world is dangerous but not unfair."
+    "missionTime": "4-6 hours of game time before self-destruction",
+    "currency": "No currency. Value is data, cryocapsules, Archon artifacts",
+    "oxygen": "Limited in decompressed sections",
+    "shipStatus": "Partially destroyed, sections losing pressure and gravity",
+    "velocity": "Insane AI, speaks through intercom, mocks, sometimes helps with false hints"
   }
 }

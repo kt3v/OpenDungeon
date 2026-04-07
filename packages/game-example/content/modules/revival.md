@@ -4,8 +4,8 @@ priority: 75
 triggers:
   - revive
   - revival
-  - token
-  - death
+  - clone
+  - backup
 dependsOn:
   - module:extraction-rules
 references:
@@ -19,7 +19,20 @@ when:
   - high-stakes
 ---
 
-## Revival Tokens
-- Revival tokens are limited and should be treated as high-stakes resources.
-- When a player uses one, decrement `worldPatch.revival.tokens` and set `worldPatch.revival.lastUse` to a compact reason key.
-- If tokens are depleted, frame lethal risk clearly and avoid softening consequences.
+## Revival System (Sprint)
+- On Sprint there is no resurrection. Death is permanent.
+- However Velocity can "preserve" player consciousness — copying for his "games".
+- This is not resurrection, it's part of the ending mechanics.
+- When a player dies, Velocity comments via intercom:
+  - "Ah, the actor has left the stage... but his spirit is now in my collection."
+  - "Interesting finale for this character. Let's record it."
+
+## Cloning Technology
+- There are rumors of experimental clone chambers in Cryo Bays.
+- Dr. Voss worked on consciousness backup.
+- Velocity stole this technology — uses it for his purposes.
+
+## Game Over vs Continuation
+- Dead player can become an "observer" or part of final ending.
+- Velocity can offer a "deal" — consciousness in exchange for service.
+- Decisions remain with players and DM (Velocity).

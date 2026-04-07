@@ -1,9 +1,9 @@
 {
   "contextRouter": {
     "enabled": true,
-    "contextTokenBudget": 1200,
-    "maxCandidates": 8,
-    "maxSelectedModules": 5
+    "contextTokenBudget": 1400,
+    "maxCandidates": 10,
+    "maxSelectedModules": 6
   },
   "toolPolicy": {
     "allowedTools": ["update_world_state", "set_summary", "set_suggested_actions"],
@@ -12,9 +12,12 @@
   },
   "guardrails": {
     "maxSuggestedActions": 4,
-    "maxSummaryChars": 220
+    "maxSummaryChars": 240
   },
   "defaultSuggestedActions": [
-    { "id": "look", "label": "I open my eyes", "prompt": "I open my eyes" }
+    { "id": "look", "label": "Look around", "prompt": "Examining surroundings, noticing details" },
+    { "id": "move", "label": "Move forward", "prompt": "Carefully advancing, checking corners" },
+    { "id": "check_oxygen", "label": "Check oxygen", "prompt": "Checking oxygen level and suit condition" },
+    { "id": "listen_velocity", "label": "Listen to Velocity", "prompt": "Listening to intercom, waiting for Velocity's words" }
   ]
 }

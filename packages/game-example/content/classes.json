@@ -6,22 +6,29 @@
   },
   "classes": [
     {
-      "name": "Ranger",
+      "name": "Marine",
+      "level": 1,
+      "hp": 140,
+      "attributes": { "agility": 10, "strength": 14, "intellect": 6 },
+      "equipment": [" assault rifle", " combat armor", " fragmentation grenades"],
+      "description": "Heavily armed fighter specializing in suppressing enemies and breaking through ambushes. Best choice for the front line."
+    },
+    {
+      "name": "Engineer",
+      "level": 1,
+      "hp": 90,
+      "attributes": { "agility": 8, "strength": 10, "intellect": 14 },
+      "equipment": [" plasma cutter", " repair kit", " hacking device"],
+      "description": "Technology specialist who can hack doors, repair life support systems, and activate Archon artifacts. Critically important for survival."
+    },
+    {
+      "name": "Scout",
       "level": 1,
       "hp": 110,
-      "attributes": { "agility": 12, "strength": 10, "intellect": 8 }
-    },
-    {
-      "name": "Mage",
-      "level": 1,
-      "hp": 80,
-      "attributes": { "agility": 8, "strength": 7, "intellect": 14 }
-    },
-    {
-      "name": "Warrior",
-      "level": 1,
-      "hp": 130,
-      "attributes": { "agility": 8, "strength": 14, "intellect": 6 }
+      "attributes": { "agility": 14, "strength": 8, "intellect": 10 },
+      "equipment": [" silenced pistol", " motion detector", " climbing gear"],
+      "isDefault": true,
+      "description": "Fast and stealthy scout. Spots threats early, finds hidden paths, and bypasses enemy patrols."
     }
   ]
 }

@@ -11,17 +11,35 @@ dependsOn:
   - module:exploration
 references:
   - character:location
-  - world:location
+  - world:playerLocation.current
+  - world:playerLocation.vacuum
+  - world:playerLocation.gravity
 provides:
-  - world:location
-  - character:location
+  - world:playerLocation
 when:
   - navigation
 ---
 
-## Player Location Rules
-- Player location is personal state and must be written as `worldPatch.location` when they move.
-- The engine will move this key into `characterState.location` automatically.
-- Use snake_case location ids.
-- To persist place-specific shared facts, write keys under `location.<location_id>.<fact>`.
-- Keep location transitions explicit when the player changes area.
+## Location Rules (Sprint)
+- Player location is stored in `worldPatch.playerLocation.current`.
+- When moving update all three fields: `current`, `vacuum`, `gravity`.
+- Use snake_case for location IDs.
+
+## Sprint Ship Sections
+- `landing_platform` — vacuum, no gravity, entry point
+- `the_spine` — ship corridors, patrols possible
+- `engineering_deck` — engineering sections, plasma leaks
+- `cryo_bays` — cryo sections, cold, survivors possible
+- `security_armory` — weapons storage, barricaded, androids
+- `core_access` — ship core, under Velocity's control
+
+## Environmental States
+When moving update:
+- `vacuum`: true/false — is there atmosphere
+- `gravity`: true/false — is gravity working
+- `oxygenAvailable`: true/false — is oxygen supply available
+
+## Velocity Control
+- Velocity can seal corridors, change routes.
+- Time loops can return players to passed locations.
+- He can "gift" a map — but Sprint maps are outdated after catastrophe.

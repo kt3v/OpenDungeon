@@ -1,16 +1,50 @@
 {
-  "nearExit": false,
-  "lootFound": [],
-  "safeToRest": false,
-  "camp": {
-    "lastOutcome": "none"
+  "mission": {
+    "phase": "entry",
+    "timeRemaining": 360,
+    "objectivesFound": 0,
+    "objectivesTotal": 3,
+    "extractionReady": false
   },
-  "lastObservation": "none",
-  "lastSound": "none",
-  "stealthActive": false,
-  "location": "dungeon_entrance",
-  "revival": {
-    "tokens": 1,
-    "lastUse": "none"
+  "ship": {
+    "integrity": 78,
+    "selfDestructActive": false,
+    "sections": {
+      "landing": "vacuum",
+      "spine": "breached",
+      "engineering": "sealed",
+      "cryo": "sealed",
+      "armory": "locked",
+      "core": "sealed"
+    }
+  },
+  "velocity": {
+    "awareness": 10,
+    "mood": "amused",
+    "lastMessage": "none",
+    "tauntCount": 0
+  },
+  "playerLocation": {
+    "current": "landing_platform",
+    "oxygenAvailable": true,
+    "gravity": false,
+    "vacuum": true
+  },
+  "loot": {
+    "found": [],
+    "archonCrystal": false,
+    "pulseCode": false,
+    "velocityKey": false
+  },
+  "survivors": {
+    "found": [],
+    "drVossLocated": false,
+    "marcusLocated": false
+  },
+  "threats": {
+    "vyrPresent": false,
+    "sylphPresent": false,
+    "androidsPresent": false,
+    "alertLevel": 0
   }
 }
