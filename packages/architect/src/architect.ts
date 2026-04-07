@@ -242,6 +242,9 @@ ${JSON.stringify(ctx.existingLore, null, 2)}`;
 const JSON_REPAIR_PROMPT =
   "Your previous response was not valid JSON. Return valid JSON only. No markdown fences or commentary.";
 
+const WORLD_FACT_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z0-9_-]+)*$/;
+const MAX_WORLD_FACT_KEY_LENGTH = 120;
+
 const parseJsonObject = (raw: string): Record<string, unknown> => {
   const normalized = stripCodeFence(raw).trim();
   let value: unknown;
@@ -287,9 +290,12 @@ const validateArchitectOperation = (item: unknown, sessionId: string | undefined
 
     case "set_world_fact": {
       if (typeof obj.key !== "string" || !obj.key.trim()) return null;
+      const key = obj.key.trim();
+      if (key.length > MAX_WORLD_FACT_KEY_LENGTH) return null;
+      if (!WORLD_FACT_KEY_PATTERN.test(key)) return null;
       if (obj.value === undefined) return null;
       const sourceTag = obj.sourceTag === "developer" ? "developer" : "chronicler";
-      return { op: "set_world_fact", key: obj.key.trim(), value: obj.value, sourceTag };
+      return { op: "set_world_fact", key, value: obj.value, sourceTag };
     }
 
     case "append_session_archive": {

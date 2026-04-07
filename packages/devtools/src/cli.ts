@@ -125,11 +125,38 @@ const normalizeDependencyId = (value: string): string => {
   return raw;
 };
 
-const validateContextFrontmatter = async (contentBase: string): Promise<{ warnings: string[]; hasAny: boolean }> => {
+const collectDottedKeys = (value: unknown, prefix = ""): string[] => {
+  if (value === null || value === undefined) return [];
+  if (Array.isArray(value)) return prefix ? [prefix] : [];
+  if (typeof value !== "object") return prefix ? [prefix] : [];
+
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return prefix ? [prefix] : [];
+
+  const keys: string[] = [];
+  for (const [k, v] of entries) {
+    const next = prefix ? `${prefix}.${k}` : k;
+    keys.push(...collectDottedKeys(v, next));
+  }
+  return keys;
+};
+
+const extractWorldReferenceKey = (ref: string): string | null => {
+  if (!ref.startsWith("world:")) return null;
+  const key = ref.slice("world:".length).trim();
+  return key || null;
+};
+
+const validateContextFrontmatter = async (
+  contentBase: string,
+  initialState: Record<string, unknown> | null
+): Promise<{ warnings: string[]; hasAny: boolean }> => {
   const warnings: string[] = [];
   const moduleDirs = ["modules", "contexts"];
   const knownModuleIds = new Set<string>();
   const dependenciesByModule = new Map<string, string[]>();
+  const referencedWorldKeys = new Set<string>();
+  const providedWorldKeys = new Set<string>();
   let hasAny = false;
 
   for (const dirName of moduleDirs) {
@@ -182,14 +209,20 @@ const validateContextFrontmatter = async (contentBase: string): Promise<{ warnin
       for (const ref of refValues) {
         if (!MACHINE_REFERENCE_PATTERN.test(ref)) {
           warnings.push(`${dirName}/${file}: invalid references entry "${ref}"`);
+          continue;
         }
+        const worldKey = extractWorldReferenceKey(ref);
+        if (worldKey) referencedWorldKeys.add(worldKey);
       }
 
       const provideValues = toStringArray(parsed.provides);
       for (const ref of provideValues) {
         if (!MACHINE_REFERENCE_PATTERN.test(ref)) {
           warnings.push(`${dirName}/${file}: invalid provides entry "${ref}"`);
+          continue;
         }
+        const worldKey = extractWorldReferenceKey(ref);
+        if (worldKey) providedWorldKeys.add(worldKey);
       }
     }
   }
@@ -198,6 +231,25 @@ const validateContextFrontmatter = async (contentBase: string): Promise<{ warnin
     for (const depId of dependencies) {
       if (!knownModuleIds.has(depId)) {
         warnings.push(`module "${moduleId}": dependsOn references missing module "${depId}"`);
+      }
+    }
+  }
+
+  if (initialState) {
+    const initialStateKeys = new Set(collectDottedKeys(initialState));
+    for (const key of referencedWorldKeys) {
+      if (!initialStateKeys.has(key)) {
+        warnings.push(`reference integrity: world reference "${key}" has no default in initial-state.json`);
+      }
+    }
+    for (const key of providedWorldKeys) {
+      if (!initialStateKeys.has(key)) {
+        warnings.push(`reference integrity: world provide "${key}" has no default in initial-state.json`);
+      }
+    }
+    for (const key of initialStateKeys) {
+      if (!referencedWorldKeys.has(key) && !providedWorldKeys.has(key)) {
+        warnings.push(`reference integrity: initial-state key "${key}" is not referenced/provided by any context module`);
       }
     }
   }
@@ -296,6 +348,7 @@ try {
       const errors: string[] = [];
       const warnings: string[] = [];
       let hasAny = false;
+      let parsedInitialState: Record<string, unknown> | null = null;
 
       // manifest.json (required)
       try {
@@ -341,7 +394,7 @@ try {
       try {
         await access(initialStatePath);
         const content = await readFile(initialStatePath, "utf8");
-        initialStateFileSchema.parse(JSON.parse(content));
+        parsedInitialState = initialStateFileSchema.parse(JSON.parse(content));
         process.stdout.write(`✓ initial-state.json\n`);
         hasAny = true;
       } catch (err: unknown) {
@@ -350,7 +403,7 @@ try {
         }
       }
 
-      const frontmatterValidation = await validateContextFrontmatter(contentBase);
+      const frontmatterValidation = await validateContextFrontmatter(contentBase, parsedInitialState);
       if (frontmatterValidation.hasAny) {
         process.stdout.write("✓ context modules frontmatter\n");
         hasAny = true;

@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "llm:probe": "tsx src/llm-probe.ts",
     "mvp:smoke": "tsx src/mvp-smoke.ts",
+    "mvp:chronicler-check": "tsx src/mvp-chronicler-check.ts",
     "mvp:restart-check": "tsx src/mvp-restart-check.ts"
   },
   "dependencies": {
