@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DRY_RUN=0
 KEEP_DB=0
 DELETE_GAMES=0
+DELETE_WEB=0
 
 print_help() {
   cat <<'EOF'
@@ -17,6 +18,7 @@ Options:
   --dry-run      Print actions without deleting/stopping anything
   --keep-db      Skip `docker compose down`
   --delete-games Delete all modules in the games/ directory
+  --delete-web   Delete all web UI modules in the web/ directory
   -h, --help     Show help
 EOF
 }
@@ -39,6 +41,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --delete-games)
       DELETE_GAMES=1
+      ;;
+    --delete-web)
+      DELETE_WEB=1
       ;;
     -h|--help)
       print_help
@@ -77,6 +82,13 @@ if [[ "$DELETE_GAMES" -eq 1 ]]; then
   run_cmd "rm -rf games"
 else
   echo "Keeping user game projects in games/ (use --delete-games to wipe them)"
+fi
+
+if [[ "$DELETE_WEB" -eq 1 ]]; then
+  echo "Deleting web UI modules in web/..."
+  run_cmd "rm -rf web"
+else
+  echo "Keeping web UI modules in web/ (use --delete-web to wipe them)"
 fi
 
 echo "Done. Reinstall manually when needed:"

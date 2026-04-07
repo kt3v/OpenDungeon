@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, relative, resolve } from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
@@ -26,7 +26,8 @@ const usage = () => {
       "  pnpm od create-module    # interactive mode",
       "",
       "Flags:",
-      "  --typescript    Add TypeScript entry point (src/index.ts) for custom mechanics"
+      "  --typescript    Add TypeScript entry point (src/index.ts) for custom mechanics",
+      "  --no-web        Skip generating the web UI module (web/<slug>/ directory)"
     ].join("\n") + "\n"
   );
 };
@@ -42,6 +43,7 @@ const parseArgs = (argv) => {
   let force = false;
   let dryRun = false;
   let typescript = false;
+  let web = true;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -81,6 +83,11 @@ const parseArgs = (argv) => {
       continue;
     }
 
+    if (arg === "--no-web") {
+      web = false;
+      continue;
+    }
+
     if (arg.startsWith("--")) {
       throw new Error(`Unknown option: ${arg}`);
     }
@@ -98,7 +105,8 @@ const parseArgs = (argv) => {
     packageName,
     force,
     dryRun,
-    typescript
+    typescript,
+    web
   };
 };
 
@@ -562,6 +570,69 @@ See the [game-example](../packages/game-example/) for a reference implementation
   }
 };
 
+// ── .env.local helpers ────────────────────────────────────────────────────────
+
+const readEnvLocal = () => {
+  const envPath = resolve(rootDir, ".env.local");
+  if (!existsSync(envPath)) return { lines: [], map: new Map() };
+  const lines = readFileSync(envPath, "utf8").split("\n");
+  const map = new Map();
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = line.indexOf("=");
+    if (eqIdx === -1) continue;
+    map.set(line.slice(0, eqIdx).trim(), line.slice(eqIdx + 1));
+  }
+  return { lines, map };
+};
+
+const writeEnvLocal = (lines, map) => {
+  const result = [];
+  const written = new Set();
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) { result.push(line); continue; }
+    const eqIdx = line.indexOf("=");
+    if (eqIdx === -1) { result.push(line); continue; }
+    const key = line.slice(0, eqIdx).trim();
+    written.add(key);
+    result.push(`${key}=${map.get(key) ?? ""}`);
+  }
+  for (const [key, val] of map) {
+    if (!written.has(key)) result.push(`${key}=${val}`);
+  }
+  let out = result.join("\n").replace(/\n{3,}/g, "\n\n");
+  if (!out.endsWith("\n")) out += "\n";
+  writeFileSync(resolve(rootDir, ".env.local"), out, "utf8");
+};
+
+// ── Web module scaffold ────────────────────────────────────────────────────────
+
+const SKIP_ON_COPY = new Set(["node_modules", ".next", ".turbo", "tsconfig.tsbuildinfo"]);
+
+const copyFilter = (src) => {
+  const name = basename(src);
+  return !SKIP_ON_COPY.has(name) && !name.endsWith(".tsbuildinfo");
+};
+
+const createWebModule = ({ absWebDir, dryRun }) => {
+  const defaultUiPath = resolve(rootDir, "apps/web/src/default");
+
+  if (!existsSync(defaultUiPath)) {
+    process.stdout.write(`  Warning: apps/web/src/default not found, skipping web module.\n`);
+    return;
+  }
+
+  if (dryRun) {
+    process.stdout.write(`Dry run: would copy apps/web/src/default → ${absWebDir}\n`);
+    return;
+  }
+
+  mkdirSync(absWebDir, { recursive: true });
+  cpSync(defaultUiPath, absWebDir, { recursive: true });
+};
+
 const run = async () => {
   let options = parseArgs(process.argv.slice(2));
   if (!options.targetDir) {
@@ -570,6 +641,27 @@ const run = async () => {
 
   const absTargetDir = resolve(rootDir, options.targetDir);
   const packageName = options.packageName || inferPackageName(absTargetDir);
+
+  // Derive web module path: <rootDir>/web/<slug>
+  const slug = toKebab(absTargetDir.split("/").filter(Boolean).at(-1) ?? "game-module") || "game-module";
+  const absWebDir = resolve(rootDir, "web", slug);
+  const relWebPath = `./web/${slug}`;
+
+  // Always update .env.local first (before scaffold, so paths are set even if scaffold is skipped)
+  if (!options.dryRun) {
+    const relGamePath = relative(rootDir, absTargetDir).replace(/\\/g, "/");
+    const gamePath = relGamePath.startsWith(".") ? relGamePath : `./${relGamePath}`;
+    const { lines, map } = readEnvLocal();
+    map.set("GAME_MODULE_PATH", gamePath);
+    if (options.web) {
+      map.set("WEB_MODULE_PATH", relWebPath);
+    }
+    writeEnvLocal(lines, map);
+    process.stdout.write(`Updated .env.local: GAME_MODULE_PATH=${gamePath}\n`);
+    if (options.web) {
+      process.stdout.write(`Updated .env.local: WEB_MODULE_PATH=${relWebPath}\n`);
+    }
+  }
 
   ensureWritableTarget(absTargetDir, options.force);
 
@@ -580,24 +672,39 @@ const run = async () => {
     dryRun: options.dryRun
   });
 
-  process.stdout.write(`Game module scaffold ready: ${absTargetDir}\n`);
-  process.stdout.write(`Package name: ${packageName}\n\n`);
+  if (options.web) {
+    createWebModule({ absWebDir, dryRun: options.dryRun });
+  }
+
+  process.stdout.write(`\nGame module scaffold ready: ${absTargetDir}\n`);
+  process.stdout.write(`Package name: ${packageName}\n`);
+
+  if (options.web) {
+    process.stdout.write(`\nWeb UI module scaffold ready: ${absWebDir}\n`);
+    process.stdout.write(`Package name: ${packageName}-web\n`);
+  }
+
+  process.stdout.write("\n");
 
   if (options.typescript) {
     process.stdout.write("This module includes TypeScript mechanics.\n");
     process.stdout.write("No build step needed — TypeScript is loaded directly by the engine.\n");
-    process.stdout.write("Next steps:\n");
-    process.stdout.write(`  1) Set GAME_MODULE_PATH=${absTargetDir} in OpenDungeon .env.local\n`);
-    process.stdout.write(`  2) Start the engine: pnpm dev:full\n`);
-    process.stdout.write("\nTip: run `pnpm typecheck` in the module directory to check types.\n");
   } else {
     process.stdout.write("This is a declarative module — no build step needed.\n");
-    process.stdout.write("Next steps:\n");
-    process.stdout.write(`  1) Set GAME_MODULE_PATH=${absTargetDir} in OpenDungeon .env.local\n`);
-    process.stdout.write(`  2) Edit setting.json, classes.json, dm.md to describe your world\n`);
-    process.stdout.write(`  3) Start the engine: pnpm dev:full\n`);
+  }
+
+  process.stdout.write("\nNext steps:\n");
+  let step = 1;
+  process.stdout.write(`  ${step++}) Edit content files (setting.json, classes.json, dm.md)\n`);
+  if (options.web) {
+    process.stdout.write(`  ${step++}) Install web UI deps: cd ${absWebDir} && pnpm install\n`);
+  }
+  process.stdout.write(`  ${step++}) Start the engine: od start\n`);
+
+  if (!options.typescript) {
     process.stdout.write("\nTip: run 'od architect scaffold' to have AI generate your content\n");
-    process.stdout.write("     To add TypeScript later, create content/mechanics/index.ts and update manifest.json#entry\n");
+  } else {
+    process.stdout.write("\nTip: run `pnpm typecheck` in the module directory to check types.\n");
   }
 };
 

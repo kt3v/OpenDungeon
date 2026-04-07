@@ -12,12 +12,13 @@ export async function runReset(_args: string[]): Promise<void> {
   println(color("    • Database volumes (all campaign data will be lost)", c.yellow));
   println(color("    • node_modules/", c.yellow));
   println(color("    • .env (all your settings)", c.yellow));
-  println(color("    • Build artifacts (.next/, dist/, .turbo/)", c.yellow));
+  println(color("    • Build artifacts (dist/, .turbo/)", c.yellow));
   println();
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   let confirmed = false;
   let deleteGames = false;
+  let deleteWeb = false;
 
   try {
     const answer = await rl.question('Type YES to confirm reset (or anything else to cancel): ');
@@ -26,6 +27,9 @@ export async function runReset(_args: string[]): Promise<void> {
     if (confirmed) {
       const gamesAnswer = await rl.question('Also delete your game projects in games/ directory? [y/N]: ');
       deleteGames = gamesAnswer.trim().toLowerCase() === "y";
+
+      const webAnswer = await rl.question('Also delete your web UI modules in web/ directory? [y/N]: ');
+      deleteWeb = webAnswer.trim().toLowerCase() === "y";
     }
   } finally {
     rl.close();
@@ -45,7 +49,10 @@ export async function runReset(_args: string[]): Promise<void> {
   const root = findProjectRoot();
   const scriptPath = join(root, "scripts", "clean-local-state.sh");
 
-  const args = deleteGames ? ["--delete-games"] : [];
+  const args = [
+    ...(deleteGames ? ["--delete-games"] : []),
+    ...(deleteWeb ? ["--delete-web"] : []),
+  ];
   const result = spawnSync("bash", [scriptPath, ...args], {
     stdio: "inherit",
     cwd: root,

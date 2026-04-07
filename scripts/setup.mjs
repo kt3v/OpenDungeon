@@ -180,10 +180,19 @@ const main = async () => {
       });
     } else {
       process.stdout.write(`\nGenerating new module in ./games/${gameModuleDir}...\n`);
-      run("node", [resolve(rootDir, "scripts", "create-game-module.mjs"), `games/${gameModuleDir}`, "--name", `@opendungeon/${moduleChoice.name}`]);
+      run("node", [resolve(rootDir, "scripts", "create-game-module.mjs"), `games/${gameModuleDir}`, "--name", `@opendungeon/${moduleChoice.name}`, "--no-web"]);
     }
   } else {
     process.stdout.write(`\nFolder ./games/${gameModuleDir} already exists. Using it.\n`);
+  }
+
+  // Create web UI module at web/<gameModuleDir>/ — just source files, no package.json needed
+  const webModulePath = resolve(rootDir, "web", gameModuleDir);
+  const defaultUiPath = resolve(rootDir, "apps/web/src/default");
+  if (!existsSync(webModulePath) && existsSync(defaultUiPath)) {
+    process.stdout.write(`\nScaffolding web UI module to ./web/${gameModuleDir}...\n`);
+    mkdirSync(webModulePath, { recursive: true });
+    cpSync(defaultUiPath, webModulePath, { recursive: true });
   }
 
   // Determine ideal ports
@@ -198,7 +207,8 @@ const main = async () => {
     WEB_PORT: webPort.toString(),
     GATEWAY_PORT: gatewayPort.toString(),
     NEXT_PUBLIC_GATEWAY_URL: `http://${localIp}:${gatewayPort}`,
-    GAME_MODULE_PATH: `./games/${gameModuleDir}`
+    GAME_MODULE_PATH: `./games/${gameModuleDir}`,
+    WEB_MODULE_PATH: `./web/${gameModuleDir}`
   };
 
   const newEnvContent = Object.entries(config)
@@ -218,8 +228,9 @@ const main = async () => {
   run("pnpm", ["run", "db:push"], { env: mergedEnv });
 
   process.stdout.write("\n" + "-".repeat(40) + "\n");
-  process.stdout.write(`SUCCESS! Your game is ready in: ./${gameModuleDir}\n`);
-  process.stdout.write("Next: od start\n");
+  process.stdout.write(`SUCCESS! Your game is ready in: ./games/${gameModuleDir}\n`);
+  process.stdout.write(`Web UI ready in:                ./web/${gameModuleDir}\n\n`);
+  process.stdout.write(`Next: od start\n`);
   process.stdout.write("-".repeat(40) + "\n\n");
 };
 

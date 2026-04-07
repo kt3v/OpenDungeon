@@ -55,3 +55,6 @@ CLAUDE.md
 
 # Game modules
 games/
+
+# Web UI modules (per-game, user-customizable)
+web/
