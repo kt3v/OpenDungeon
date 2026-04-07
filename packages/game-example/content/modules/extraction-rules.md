@@ -6,6 +6,18 @@ triggers:
   - extract
   - exit
   - loot
+dependsOn:
+  - module:location-rules
+references:
+  - character:location
+  - world:nearExit
+  - world:lootFound
+provides:
+  - world:nearExit
+  - world:lootFound
+when:
+  - extraction
+  - loot
 ---
 
 ## Extraction Rules
@@ -13,4 +25,5 @@ triggers:
 - When the player reaches an extraction point, set `nearExit: true` in `worldPatch`.
 - When the player finds loot, include it in `worldPatch.lootFound` as an array of item objects.
   - Example: `[{ "id": "rusty_sword", "label": "Rusty Sword" }]`
+- If the player moves away from extraction routes, set `nearExit: false` to keep extraction affordances accurate.
 - If the player dies, they lose session loot.

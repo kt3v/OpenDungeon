@@ -296,7 +296,10 @@ const createModuleFiles = ({ absTargetDir, packageName, typescript, dryRun }) =>
     ]
   };
 
-  const initialStateJson = {};
+  const initialStateJson = {
+    lastObservation: "none",
+    lastSound: "none"
+  };
 
   const explorationModule = `---
 id: exploration
@@ -306,9 +309,12 @@ triggers:
   - look
   - inspect
   - explore
+dependsOn:
+  - module:sound-awareness
 references:
   - character:location
   - world:lastObservation
+  - world:lastSound
 provides:
   - world:lastObservation
 when:
@@ -319,6 +325,29 @@ when:
 - Keep descriptions grounded in current location and recent state changes.
 - Surface actionable details, not only atmosphere.
 - Update world state only with concrete, discoverable facts.
+`;
+
+  const soundAwarenessModule = `---
+id: sound-awareness
+priority: 70
+triggers:
+  - listen
+  - hear
+  - sound
+references:
+  - character:location
+  - world:lastSound
+provides:
+  - world:lastSound
+when:
+  - exploration
+  - infiltration
+---
+
+## Sound Awareness Guidance
+- Describe ambient and directional sounds tied to current location.
+- Persist relevant clues via worldPatch.lastSound using compact snake_case values.
+- Favor actionable audio information over purely decorative flavor.
 `;
 
   const hpResource = {
@@ -427,6 +456,7 @@ ${typescript ? `├── tsconfig.json              # TypeScript config (typech
     ├── initial-state.json     # Starting worldState for new campaigns
     ├── modules/               # Routed Markdown context modules
     │   └── exploration.md
+    │   └── sound-awareness.md
     ├── lore/                  # Markdown world-building files
     │   └── README.md
     ├── indicators/            # UI resource indicators
@@ -497,6 +527,7 @@ See the [game-example](../packages/game-example/) for a reference implementation
     { path: c("dm-config.json"), content: JSON.stringify(dmConfigJson, null, 2) + "\n" },
     { path: c("initial-state.json"), content: JSON.stringify(initialStateJson, null, 2) + "\n" },
     { path: c("modules/exploration.md"), content: explorationModule },
+    { path: c("modules/sound-awareness.md"), content: soundAwarenessModule },
     { path: c("indicators/hp.json"), content: JSON.stringify(hpResource, null, 2) + "\n" },
     { path: c("indicators/location.json"), content: JSON.stringify(locationResource, null, 2) + "\n" },
     { path: c("lore/README.md"), content: loreReadme }

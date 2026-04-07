@@ -18,6 +18,7 @@ The reference implementation for OpenDungeon. This module demonstrates **TypeScr
 - **Mechanics-first gameplay actions** — gameplay actions (`extract`, `camp`, `revive`) live in TypeScript mechanics
 - **Routed markdown context modules** — DM guidance lives in `modules/*.md` and is selected per action
 - **Machine-precise module references** — frontmatter `references/dependsOn/provides` boosts routing precision without TypeScript
+- **State/reference integrity defaults** — `initial-state.json` mirrors `world:*` references for safer authoring and validation
 - **Setting system** — structured `setting.json` + rich markdown lore in `lore/`
 - **Resource indicators** — HP, gold, inventory, location mapped to UI via `indicators/*.json`
 
@@ -31,6 +32,7 @@ packages/game-example/
   setting.json              # World bible (era, tone, themes, taboos)
   dm.md                     # Base DM prompt
   dm-config.json            # DM tool policy + guardrails + context router config
+  initial-state.json        # Default world state keys aligned with world:* references
   package.json
   tsconfig.json
 
@@ -59,6 +61,17 @@ packages/game-example/
       location.ts           # Moves location from worldPatch into characterState (per-player)
       extraction.ts         # Accumulates session loot, surfaces Extract action at exits
 ```
+
+### Context frontmatter contract
+
+Each `modules/*.md` file in this example uses machine-readable frontmatter fields:
+
+- `dependsOn` (`module:<id>`) for dependency expansion
+- `references` (`world:`, `character:`, `module:`, `resource:`) for routing and prompt alignment
+- `provides` for expected state updates
+- `when` for lightweight routing tags
+
+This is the recommended md+json-first authoring style for new modules.
 
 ---
 

@@ -141,9 +141,15 @@ const extractCharacterReferenceKey = (ref: string): string | null => {
   return key || null;
 };
 
+const resolveContentBase = async (moduleRoot: string): Promise<string> => {
+  const contentDir = resolve(moduleRoot, "content");
+  return (await fileExists(contentDir)) ? contentDir : moduleRoot;
+};
+
 const readInitialStateFromDisk = async (moduleRoot: string | undefined): Promise<Record<string, unknown> | null> => {
   if (!moduleRoot) return null;
-  const initialStatePath = resolve(moduleRoot, "initial-state.json");
+  const contentBase = await resolveContentBase(moduleRoot);
+  const initialStatePath = resolve(contentBase, "initial-state.json");
   try {
     const raw = await readFile(initialStatePath, "utf8");
     const parsed = JSON.parse(raw) as unknown;
@@ -485,6 +491,7 @@ const loadModuleContext = async (
   let existingFiles: string[] | undefined;
 
   if (absModulePath) {
+    const contentBase = await resolveContentBase(absModulePath);
     try {
       const pkgPath = resolve(absModulePath, "package.json");
       let entryPath: string | undefined;
@@ -508,14 +515,15 @@ const loadModuleContext = async (
       }
     } catch { /* best-effort */ }
 
-    const modules = await listFilesIn(resolve(absModulePath, "modules"), ".md");
-    const contexts = await listFilesIn(resolve(absModulePath, "contexts"), ".md");
-    const lore = await listFilesIn(resolve(absModulePath, "lore"), ".md");
-    const indicators = await listFilesIn(resolve(absModulePath, "indicators"), ".json");
-    const keyJsonFiles = ["manifest.json", "setting.json", "dm-config.json", "initial-state.json"];
+    const modules = await listFilesIn(resolve(contentBase, "modules"), ".md");
+    const contexts = await listFilesIn(resolve(contentBase, "contexts"), ".md");
+    const lore = await listFilesIn(resolve(contentBase, "lore"), ".md");
+    const indicators = await listFilesIn(resolve(contentBase, "indicators"), ".json");
+    const keyJsonFiles = ["setting.json", "dm-config.json", "initial-state.json"];
     const presentJsonFiles: string[] = [];
+    if (await fileExists(resolve(absModulePath, "manifest.json"))) presentJsonFiles.push("manifest.json");
     for (const file of keyJsonFiles) {
-      if (await fileExists(resolve(absModulePath, file))) presentJsonFiles.push(file);
+      if (await fileExists(resolve(contentBase, file))) presentJsonFiles.push(file);
     }
 
     existingFiles = [...presentJsonFiles, ...modules, ...contexts, ...lore, ...indicators];

@@ -1,0 +1,16 @@
+{
+  "nearExit": false,
+  "lootFound": [],
+  "safeToRest": false,
+  "camp": {
+    "lastOutcome": "none"
+  },
+  "lastObservation": "none",
+  "lastSound": "none",
+  "stealthActive": false,
+  "location": "dungeon_entrance",
+  "revival": {
+    "tokens": 1,
+    "lastUse": "none"
+  }
+}

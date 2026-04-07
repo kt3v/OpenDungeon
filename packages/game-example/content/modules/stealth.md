@@ -6,6 +6,16 @@ triggers:
   - hide
   - sneak
   - quietly
+dependsOn:
+  - module:sound-awareness
+references:
+  - world:stealthActive
+  - world:lastSound
+provides:
+  - world:stealthActive
+when:
+  - infiltration
+  - exploration
 ---
 
 ## Stealth Rules

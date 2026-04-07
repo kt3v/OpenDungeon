@@ -6,6 +6,16 @@ triggers:
   - hear
   - noise
   - sound
+dependsOn:
+  - module:exploration
+references:
+  - world:lastSound
+  - character:location
+provides:
+  - world:lastSound
+when:
+  - exploration
+  - infiltration
 ---
 
 ## Sound Awareness
