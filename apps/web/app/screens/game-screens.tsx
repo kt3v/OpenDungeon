@@ -476,9 +476,7 @@ type ActionsScreenProps = {
 };
 
 export function ActionsScreen(props: ActionsScreenProps) {
-  const narrativeText =
-    props.currentMessage.trim() ||
-    "The dungeon holds its breath. Make your move and let the story unfold.";
+  const narrativeText = props.currentMessage.trim();
 
   const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !props.isActionPending) {
@@ -503,9 +501,11 @@ export function ActionsScreen(props: ActionsScreenProps) {
       <div className="chronicle-wrap">
         <article className="chronicle-card">
           <p className="chronicle-label">Chronicle</p>
-          <div className="chronicle-text markdown-content">
-            <ReactMarkdown>{narrativeText}</ReactMarkdown>
-          </div>
+          {narrativeText && (
+            <div className="chronicle-text markdown-content">
+              <ReactMarkdown>{narrativeText}</ReactMarkdown>
+            </div>
+          )}
           {props.sessionSummary && (
             <p className="chronicle-summary">{props.sessionSummary}</p>
           )}
@@ -553,7 +553,6 @@ export function ActionsScreen(props: ActionsScreenProps) {
             value={props.actionText}
             onChange={(e) => props.setActionText(e.target.value)}
             onKeyDown={handleKey}
-            placeholder="What do you do?"
             disabled={props.isActionPending}
           />
           <button

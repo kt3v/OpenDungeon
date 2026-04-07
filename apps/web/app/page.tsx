@@ -347,6 +347,7 @@ export default function HomePage() {
     if (isActionPending || !selectedSessionId) return;
     const cleanPrompt = prompt.trim();
     if (!cleanPrompt) return;
+    setActionText("");
     setIsActionPending(true);
     try {
       const { actionId } = await request(`/sessions/${selectedSessionId}/actions`, {
