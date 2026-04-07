@@ -80,6 +80,7 @@ Keep it concise — 10-30 lines. Include:
 ## dm-config.json format
 \`\`\`json
 {
+  "narratorStyle": "strict",
   "toolPolicy": {
     "allowedTools": ["update_world_state", "set_summary", "set_suggested_actions"],
     "requireSummary": true,
@@ -94,6 +95,11 @@ Keep it concise — 10-30 lines. Include:
   ]
 }
 \`\`\`
+
+- narratorStyle: "collaborative" | "balanced" | "strict" (default: "balanced")
+- "collaborative": DM trusts player claims, amplifies their descriptions
+- "balanced": DM validates actions through narrative logic
+- "strict": DM is independent narrator, never accepts player-declared outcomes
 
 Note: "systemPrompt" field in dm-config.json is supported but dm.md is preferred
 for longer prompts. "suggestedActionStrategy" (a TypeScript function) cannot be

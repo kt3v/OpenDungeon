@@ -444,6 +444,9 @@ export class EngineRuntime {
       ].join("\n");
     }
 
+    // Section 2.5: Narrator style guidelines
+    const narratorSection = this.buildNarratorSection(dm.narratorStyle);
+
     // Section 3: Context modules routed per turn
     const routedModules = await this.resolveRoutedContextModules({ actionText, worldState });
     const modulesSection = routedModules.length > 0
@@ -468,6 +471,7 @@ export class EngineRuntime {
     const parts: string[] = [];
     if (settingSection) parts.push(settingSection);
     parts.push(base + languageSection);
+    if (narratorSection) parts.push(narratorSection);
     if (modulesSection) parts.push(modulesSection);
     if (activeReferencesSection) parts.push(activeReferencesSection);
 
@@ -529,6 +533,33 @@ export class EngineRuntime {
     }
 
     return selected.length > 0 ? [header, ...selected].join("\n") : "";
+  }
+
+  private buildNarratorSection(narratorStyle?: "collaborative" | "balanced" | "strict"): string {
+    const style = narratorStyle ?? "balanced";
+
+    const guidelines: Record<typeof style, string> = {
+      collaborative: `## Narrator Guidelines (Collaborative)
+- Player ability claims are generally trusted when consistent with character abilities
+- Confirm player-declared outcomes with brief narrative framing
+- You are the co-narrator: amplify and validate player descriptions`,
+
+      balanced: `## Narrator Guidelines (Balanced)
+- Player ability claims may be confirmed narratively but require contextual plausibility
+- Self-inflicted damage or resource changes by player declaration require DM confirmation
+- Do not accept "I take damage" as a fiat; describe the attempt and its actual result
+- Validate actions through narrative logic, not player assertion`,
+
+      strict: `## Narrator Guidelines (Strict)
+- Player ability claims require narrative confirmation before success
+- NEVER accept player-declared damage, HP loss, or resource changes without DM narrative
+- Describe attempted actions, do not grant automatic outcomes
+- "I cast fireball" becomes: "You begin the incantation..." with potential failure or partial effect
+- "I fall and take -5 HP" is ALWAYS ignored; you describe the fall and determine consequences
+- You are the independent narrator, not a yes-man to player claims`
+    };
+
+    return guidelines[style];
   }
 
   private isContextRouterEnabled(): boolean {

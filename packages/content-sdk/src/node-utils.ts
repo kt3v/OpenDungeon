@@ -508,6 +508,9 @@ export const loadDmConfigFileSync = (filePath: string): DungeonMasterModuleConfi
   if (jsonConfig?.defaultSuggestedActions) {
     config.defaultSuggestedActions = jsonConfig.defaultSuggestedActions;
   }
+  if (jsonConfig?.narratorStyle) {
+    config.narratorStyle = jsonConfig.narratorStyle;
+  }
   const jsonConfigRecord = jsonConfig as Record<string, unknown> | null;
   if (jsonConfigRecord && typeof jsonConfigRecord.contextRouter === "object" && jsonConfigRecord.contextRouter) {
     config.contextRouter = jsonConfigRecord.contextRouter as DungeonMasterModuleConfig["contextRouter"];

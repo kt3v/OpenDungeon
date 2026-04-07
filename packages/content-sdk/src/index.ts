@@ -366,6 +366,7 @@ export interface DungeonMasterModuleConfig {
   suggestedActionStrategy?: SuggestedActionStrategy;
   contextModules?: DungeonMasterContextModule[];
   contextRouter?: DungeonMasterContextRouterConfig;
+  narratorStyle?: "collaborative" | "balanced" | "strict";
 }
 
 export interface DungeonMasterContextModule {

@@ -84,7 +84,8 @@ export const dmConfigFileSchema = z.object({
   guardrails: dmGuardrailsSchema.optional(),
   toolPolicy: dmToolPolicySchema.optional(),
   defaultSuggestedActions: z.array(suggestedActionSchema).optional(),
-  contextRouter: dmContextRouterSchema.optional()
+  contextRouter: dmContextRouterSchema.optional(),
+  narratorStyle: z.enum(["collaborative", "balanced", "strict"]).optional()
 });
 
 export type DmConfigFile = z.infer<typeof dmConfigFileSchema>;
