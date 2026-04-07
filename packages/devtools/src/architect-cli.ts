@@ -265,11 +265,17 @@ const loadModuleContext = async (
       }
     } catch { /* best-effort */ }
 
-    const skills = await listFilesIn(resolve(absModulePath, "skills"), ".json");
-    const hooks  = await listFilesIn(resolve(absModulePath, "hooks"),  ".json");
-    const rules  = await listFilesIn(resolve(absModulePath, "rules"),  ".json");
-    const lore   = await listFilesIn(resolve(absModulePath, "lore"),   ".md");
-    existingFiles = [...skills, ...hooks, ...rules, ...lore];
+    const modules = await listFilesIn(resolve(absModulePath, "modules"), ".md");
+    const contexts = await listFilesIn(resolve(absModulePath, "contexts"), ".md");
+    const lore = await listFilesIn(resolve(absModulePath, "lore"), ".md");
+    const indicators = await listFilesIn(resolve(absModulePath, "indicators"), ".json");
+    const keyJsonFiles = ["manifest.json", "setting.json", "dm-config.json", "initial-state.json"];
+    const presentJsonFiles: string[] = [];
+    for (const file of keyJsonFiles) {
+      if (await fileExists(resolve(absModulePath, file))) presentJsonFiles.push(file);
+    }
+
+    existingFiles = [...presentJsonFiles, ...modules, ...contexts, ...lore, ...indicators];
   }
 
   let existingWorldState: Record<string, unknown> = {};
