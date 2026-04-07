@@ -1,12 +1,11 @@
 {
-  "name": "@opendungeon/game-classic",
+  "name": "@opendungeon/game-example",
   "version": "0.1.2",
   "description": "Classic RPG module for OpenDungeon engine",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "content/mechanics/index.ts",
   "files": [
-    "dist",
+    "content",
     "manifest.json",
     "dm.md",
     "dm-config.json",
@@ -31,10 +30,6 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
-  },
-  "dependencies": {
-    "@opendungeon/content-sdk": "workspace:*"
   }
 }

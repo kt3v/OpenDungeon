@@ -110,6 +110,9 @@ export class ActionProcessor {
   /** In-memory index of all queued actions for fast polling. */
   private readonly queue = new Map<string, QueueEntry>();
 
+  /** Count of actions currently being processed (for graceful drain on reload). */
+  private activeCount = 0;
+
   /**
    * Per-campaign commit chain.
    * LLM calls run freely in parallel; world-state commits are serialised
@@ -193,6 +196,19 @@ export class ActionProcessor {
     return this.queue.get(actionId);
   }
 
+  /**
+   * Wait until all in-flight actions complete, or until timeoutMs elapses.
+   * Returns true if drained cleanly, false if timed out.
+   */
+  async drain(timeoutMs = 30_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (this.activeCount > 0) {
+      if (Date.now() > deadline) return false;
+      await new Promise<void>((r) => setTimeout(r, 100));
+    }
+    return true;
+  }
+
   // ---------------------------------------------------------------------------
   // Core async pipeline
   // ---------------------------------------------------------------------------
@@ -208,6 +224,7 @@ export class ActionProcessor {
     if (!entry) return;
 
     entry.status = "processing";
+    this.activeCount++;
 
     try {
       const session = this.callbacks.getSession(sessionId);
@@ -478,6 +495,8 @@ export class ActionProcessor {
           })
           .catch(() => {});
       }
+    } finally {
+      this.activeCount--;
     }
   }
 

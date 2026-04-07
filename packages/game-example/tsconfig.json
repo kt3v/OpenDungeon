@@ -1,10 +1,14 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src"
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@opendungeon/content-sdk": ["../content-sdk/src/index.ts"],
+      "@opendungeon/content-sdk/*": ["../content-sdk/src/*"]
+    }
   },
   "include": [
-    "src/**/*.ts"
+    "content/mechanics/**/*.ts"
   ]
 }

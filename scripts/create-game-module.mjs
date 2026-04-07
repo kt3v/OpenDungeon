@@ -180,9 +180,9 @@ const getContentSdkDependency = (absTargetDir) => {
  * All modules include declarative JSON/Markdown files.
  * TypeScript mechanics are optional (--typescript flag).
  */
-const createModuleFiles = ({ absTargetDir, packageName, contentSdkDependency, typescript, dryRun }) => {
-  // Entry is either the compiled JS path or "declarative" for pure declarative modules
-  const entry = typescript ? "dist/index.js" : "declarative";
+const createModuleFiles = ({ absTargetDir, packageName, typescript, dryRun }) => {
+  // Entry is either the TypeScript source path or "declarative" for pure declarative modules
+  const entry = typescript ? "content/mechanics/index.ts" : "declarative";
 
   const manifest = {
     name: packageName,
@@ -200,28 +200,10 @@ const createModuleFiles = ({ absTargetDir, packageName, contentSdkDependency, ty
         version: "0.1.0",
         private: true,
         type: "module",
-        main: "dist/index.js",
-        files: [
-          "dist",
-          "manifest.json",
-          "setting.json",
-          "classes.json",
-          "dm.md",
-          "dm-config.json",
-          "initial-state.json",
-          "modules",
-          "indicators",
-          "lore"
-        ],
+        main: "content/mechanics/index.ts",
+        files: ["content", "manifest.json"],
         scripts: {
-          build: "tsc -p tsconfig.json",
           typecheck: "tsc -p tsconfig.json --noEmit"
-        },
-        dependencies: {
-          "@opendungeon/content-sdk": contentSdkDependency
-        },
-        devDependencies: {
-          typescript: "^5.8.3"
         }
       }
     : {
@@ -229,39 +211,30 @@ const createModuleFiles = ({ absTargetDir, packageName, contentSdkDependency, ty
         version: "0.1.0",
         private: true,
         type: "module",
-        files: [
-          "manifest.json",
-          "setting.json",
-          "classes.json",
-          "dm.md",
-          "dm-config.json",
-          "initial-state.json",
-          "modules",
-          "indicators",
-          "lore"
-        ]
+        files: ["content", "manifest.json"]
       };
+
+  // Compute relative paths from game dir to monorepo root files
+  const rootTsconfigPath = resolve(rootDir, "tsconfig.base.json");
+  const relToBase = relative(absTargetDir, rootTsconfigPath).replace(/\\/g, "/");
+  const tsconfigExtends = relToBase.startsWith(".") ? relToBase : `./${relToBase}`;
+
+  const contentSdkSrcPath = resolve(rootDir, "packages/content-sdk/src");
+  const relToContentSdk = relative(absTargetDir, contentSdkSrcPath).replace(/\\/g, "/");
+  const contentSdkSrcRel = relToContentSdk.startsWith(".") ? relToContentSdk : `./${relToContentSdk}`;
 
   const tsconfig = typescript
     ? {
+        extends: tsconfigExtends,
         compilerOptions: {
-          target: "ES2022",
-          module: "NodeNext",
-          moduleResolution: "NodeNext",
-          strict: true,
-          declaration: true,
-          declarationMap: true,
-          sourceMap: true,
-          skipLibCheck: true,
-          resolveJsonModule: true,
-          esModuleInterop: true,
-          forceConsistentCasingInFileNames: true,
-          noUncheckedIndexedAccess: true,
-          noImplicitOverride: true,
-          outDir: "dist",
-          rootDir: "src"
+          noEmit: true,
+          baseUrl: ".",
+          paths: {
+            "@opendungeon/content-sdk": [`${contentSdkSrcRel}/index.ts`],
+            "@opendungeon/content-sdk/*": [`${contentSdkSrcRel}/*`]
+          }
         },
-        include: ["src/**/*.ts"]
+        include: ["content/mechanics/**/*.ts"]
       }
     : null;
 
@@ -373,15 +346,15 @@ Each .md file will be loaded and injected into the DM's system prompt.
   // TypeScript entry point (only for --typescript)
   const indexTs = typescript
     ? `import { defineMechanics } from "@opendungeon/content-sdk";
-import { myMechanic } from "./mechanics/my-mechanic.js";
+import { myMechanic } from "./logic/my-mechanic.js";
 
 /**
- * TypeScript extension for ${packageName}.
+ * TypeScript mechanics entry point for ${packageName}.
  *
- * All module data (classes, DM config, setting, context modules, indicators)
- * is loaded from JSON/Markdown files in the module root.
+ * All game content (classes, DM config, setting, context modules, indicators)
+ * is loaded from JSON/Markdown files in the content/ directory.
  *
- * This file only exports additional mechanics that implement complex,
+ * This file only exports mechanics that implement complex,
  * stateful gameplay logic beyond what declarative files can express.
  */
 export default defineMechanics({
@@ -427,37 +400,40 @@ An OpenDungeon game module.
 # Set the game module path in OpenDungeon .env.local:
 GAME_MODULE_PATH=${absTargetDir}
 
-# Start OpenDungeon
-${typescript ? `cd ${absTargetDir} && pnpm install && pnpm build\n\n# Then:` : ""}pnpm dev:full
+# Start OpenDungeon (from the engine root)
+pnpm dev:full
 \`\`\`
 
-${typescript ? "After editing TypeScript files, run `pnpm build` to recompile." : "No build step needed — edit JSON/Markdown files directly."}
+${typescript ? "TypeScript files are loaded directly — no build step needed. Run `pnpm typecheck` to check types." : "No build step needed — edit JSON/Markdown files directly."}
 
 ## Project Structure
 
 \`\`\`
-├── manifest.json         # Module metadata
-├── setting.json          # World config (era, tone, themes, taboos)
-├── classes.json          # Character class definitions
-├── dm.md                 # DM system prompt (Markdown)
-├── dm-config.json        # DM guardrails, tool policy, default actions
-├── initial-state.json    # Starting worldState for new campaigns
-├── modules/              # Routed Markdown context modules
-│   └── exploration.md
-├── lore/                 # Markdown lore files
-│   └── README.md
-├── indicators/           # UI resource indicators
-│   ├── hp.json
-│   └── location.json
-${typescript ? `├── src/                  # TypeScript mechanics (optional)
-│   ├── index.ts          # Entry point — exports mechanics only
-│   └── mechanics/
-│       └── my-mechanic.ts` : "# TypeScript mechanics optional — add src/ directory with index.ts if needed"}
+├── manifest.json              # Module identity and entry point
+├── package.json               # Package metadata
+${typescript ? `├── tsconfig.json              # TypeScript config (typecheck only)
+` : ""}└── content/
+    ├── setting.json           # World config (era, tone, themes, taboos)
+    ├── classes.json           # Character class definitions
+    ├── dm.md                  # DM system prompt (Markdown)
+    ├── dm-config.json         # DM guardrails, tool policy, default actions
+    ├── initial-state.json     # Starting worldState for new campaigns
+    ├── modules/               # Routed Markdown context modules
+    │   └── exploration.md
+    ├── lore/                  # Markdown world-building files
+    │   └── README.md
+    ├── indicators/            # UI resource indicators
+    │   ├── hp.json
+    │   └── location.json
+${typescript ? `    └── mechanics/             # TypeScript mechanics
+        ├── index.ts           # Entry point — exports mechanics array
+        └── logic/
+            └── my-mechanic.ts` : "    └── mechanics/             # (optional) TypeScript mechanics\n        # create index.ts and set manifest.json#entry: \"content/mechanics/index.ts\""}
 \`\`\`
 
 ## Adding Gameplay
 
-### Context Modules (modules/*.md)
+### Context Modules (content/modules/*.md)
 Store gameplay and narrative guidance in routed Markdown modules:
 \`\`\`markdown
 ---
@@ -473,7 +449,7 @@ triggers:
 - If stamina is low, reflect fatigue in narrative and suggested actions.
 \`\`\`
 
-${typescript ? `### TypeScript Mechanics (src/mechanics/*.ts)
+${typescript ? `### TypeScript Mechanics (content/mechanics/logic/*.ts)
 For complex logic that declarative files can't express:
 
 \`\`\`typescript
@@ -490,33 +466,36 @@ export const myMechanic = defineMechanic({
 });
 \`\`\`
 
-Don't forget to import and add to the mechanics array in \`src/index.ts\`!` : "### TypeScript Mechanics (optional)\n\nFor complex logic, create `src/index.ts` and point `entry` in manifest.json to `dist/index.js`."}
+Import and add to the mechanics array in \`content/mechanics/index.ts\`.` : "### TypeScript Mechanics (optional)\n\nCreate `content/mechanics/index.ts`, set `entry` in manifest.json to `\"content/mechanics/index.ts\"`. No build step needed."}
 
 See the [game-example](../packages/game-example/) for a reference implementation.
 `;
+
+  // content/ prefix shorthand
+  const c = (p) => resolve(absTargetDir, "content", p);
 
   // Build file list
   const files = [
     { path: resolve(absTargetDir, "package.json"), content: JSON.stringify(packageJson, null, 2) + "\n" },
     { path: resolve(absTargetDir, "manifest.json"), content: JSON.stringify(manifest, null, 2) + "\n" },
-    { path: resolve(absTargetDir, ".gitignore"), content: `node_modules\n${typescript ? "dist\n" : ""}` },
+    { path: resolve(absTargetDir, ".gitignore"), content: "node_modules\n" },
     { path: resolve(absTargetDir, "README.md"), content: readme },
-    { path: resolve(absTargetDir, "setting.json"), content: JSON.stringify(settingJson, null, 2) + "\n" },
-    { path: resolve(absTargetDir, "classes.json"), content: JSON.stringify(classesJson, null, 2) + "\n" },
-    { path: resolve(absTargetDir, "dm.md"), content: dmMd },
-    { path: resolve(absTargetDir, "dm-config.json"), content: JSON.stringify(dmConfigJson, null, 2) + "\n" },
-    { path: resolve(absTargetDir, "initial-state.json"), content: JSON.stringify(initialStateJson, null, 2) + "\n" },
-    { path: resolve(absTargetDir, "modules/exploration.md"), content: explorationModule },
-    { path: resolve(absTargetDir, "indicators/hp.json"), content: JSON.stringify(hpResource, null, 2) + "\n" },
-    { path: resolve(absTargetDir, "indicators/location.json"), content: JSON.stringify(locationResource, null, 2) + "\n" },
-    { path: resolve(absTargetDir, "lore/README.md"), content: loreReadme }
+    { path: c("setting.json"), content: JSON.stringify(settingJson, null, 2) + "\n" },
+    { path: c("classes.json"), content: JSON.stringify(classesJson, null, 2) + "\n" },
+    { path: c("dm.md"), content: dmMd },
+    { path: c("dm-config.json"), content: JSON.stringify(dmConfigJson, null, 2) + "\n" },
+    { path: c("initial-state.json"), content: JSON.stringify(initialStateJson, null, 2) + "\n" },
+    { path: c("modules/exploration.md"), content: explorationModule },
+    { path: c("indicators/hp.json"), content: JSON.stringify(hpResource, null, 2) + "\n" },
+    { path: c("indicators/location.json"), content: JSON.stringify(locationResource, null, 2) + "\n" },
+    { path: c("lore/README.md"), content: loreReadme }
   ];
 
   if (typescript) {
     files.push(
       { path: resolve(absTargetDir, "tsconfig.json"), content: JSON.stringify(tsconfig, null, 2) + "\n" },
-      { path: resolve(absTargetDir, "src/index.ts"), content: indexTs },
-      { path: resolve(absTargetDir, "src/mechanics/my-mechanic.ts"), content: exampleMechanicTs }
+      { path: c("mechanics/index.ts"), content: indexTs },
+      { path: c("mechanics/logic/my-mechanic.ts"), content: exampleMechanicTs }
     );
   }
 
@@ -529,12 +508,11 @@ See the [game-example](../packages/game-example/) for a reference implementation
   }
 
   // Create directories
-  mkdirSync(resolve(absTargetDir, "modules"), { recursive: true });
-  mkdirSync(resolve(absTargetDir, "indicators"), { recursive: true });
-  mkdirSync(resolve(absTargetDir, "lore"), { recursive: true });
+  mkdirSync(c("modules"), { recursive: true });
+  mkdirSync(c("indicators"), { recursive: true });
+  mkdirSync(c("lore"), { recursive: true });
   if (typescript) {
-    mkdirSync(resolve(absTargetDir, "src"), { recursive: true });
-    mkdirSync(resolve(absTargetDir, "src/mechanics"), { recursive: true });
+    mkdirSync(c("mechanics/logic"), { recursive: true });
   }
 
   for (const file of files) {
@@ -553,12 +531,9 @@ const run = async () => {
 
   ensureWritableTarget(absTargetDir, options.force);
 
-  const contentSdkDependency = options.typescript ? getContentSdkDependency(absTargetDir) : null;
-
   createModuleFiles({
     absTargetDir,
     packageName,
-    contentSdkDependency,
     typescript: options.typescript,
     dryRun: options.dryRun
   });
@@ -568,12 +543,11 @@ const run = async () => {
 
   if (options.typescript) {
     process.stdout.write("This module includes TypeScript mechanics.\n");
+    process.stdout.write("No build step needed — TypeScript is loaded directly by the engine.\n");
     process.stdout.write("Next steps:\n");
-    process.stdout.write(`  1) cd ${absTargetDir} && pnpm install\n`);
-    process.stdout.write(`  2) pnpm build\n`);
-    process.stdout.write(`  3) Set GAME_MODULE_PATH=${absTargetDir} in OpenDungeon .env.local\n`);
-    process.stdout.write(`  4) Start the engine: pnpm dev:full\n`);
-    process.stdout.write("\nAfter editing TypeScript, run `pnpm build` to recompile.\n");
+    process.stdout.write(`  1) Set GAME_MODULE_PATH=${absTargetDir} in OpenDungeon .env.local\n`);
+    process.stdout.write(`  2) Start the engine: pnpm dev:full\n`);
+    process.stdout.write("\nTip: run `pnpm typecheck` in the module directory to check types.\n");
   } else {
     process.stdout.write("This is a declarative module — no build step needed.\n");
     process.stdout.write("Next steps:\n");

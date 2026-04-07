@@ -1,9 +1,9 @@
 {
-  "name": "@opendungeon/game-classic",
+  "name": "@opendungeon/game-example",
   "version": "0.1.0",
   "engine": "^1.0.0",
   "contentApi": "^1.0.0",
   "capabilities": ["map.v1", "inventory.v1", "dialogue.v1"],
-  "entry": "dist/index.js",
+  "entry": "content/mechanics/index.ts",
   "stateVersion": 1
 }

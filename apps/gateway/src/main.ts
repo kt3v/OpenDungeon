@@ -17,7 +17,7 @@ import { ArchitectRuntime, ArchitectOperationExecutor } from "@opendungeon/archi
 import { loadGameModuleFromPath, type LoadedGameModule } from "./module-loader.js";
 import { serverConfig } from "./server-config.js";
 import { WorldStore } from "./world-store.js";
-import { ActionProcessor } from "./action-processor.js";
+import { ActionProcessor, type ProcessorCallbacks } from "./action-processor.js";
 import type { SessionEndReason } from "@opendungeon/shared";
 
 // ---------------------------------------------------------------------------
@@ -165,37 +165,6 @@ type RuntimeContext = {
   runtime: EngineRuntime;
 };
 
-const createRuntimeContext = async (): Promise<RuntimeContext> => {
-  const loadedModule = await loadGameModuleFromPath(process.env.GAME_MODULE_PATH);
-
-  // Create primary provider
-  const primaryProvider = createProviderFromEnv();
-
-  // Create optional fallback provider
-  const fallbackProvider = process.env.GATEWAY_LLM_FALLBACK_PROVIDER
-    ? createProvider({
-        provider: process.env.GATEWAY_LLM_FALLBACK_PROVIDER as "openai-compatible" | "anthropic-compatible",
-        baseUrl: process.env.GATEWAY_LLM_FALLBACK_BASE_URL,
-        apiKey: process.env.GATEWAY_LLM_FALLBACK_API_KEY,
-        model: process.env.GATEWAY_LLM_FALLBACK_MODEL,
-        endpointPath: process.env.GATEWAY_LLM_FALLBACK_ENDPOINT_PATH
-      })
-    : undefined;
-
-  // Create gateway provider with production safeguards
-  const gatewayProvider = createGatewayProviderFromEnv(primaryProvider, fallbackProvider);
-
-  // Log metrics periodically
-  if (serverConfig.llmMetricsLogIntervalMs > 0) {
-    setInterval(() => {
-      const metrics = gatewayProvider.getMetrics();
-      console.log("[LLM Metrics]", JSON.stringify(metrics));
-    }, serverConfig.llmMetricsLogIntervalMs);
-  }
-
-  const runtime = new EngineRuntime(loadedModule.gameModule, { provider: gatewayProvider });
-  return { loadedModule, runtime };
-};
 
 const parseJsonRecord = (value: unknown): Record<string, unknown> => {
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -311,7 +280,33 @@ const requireUserId = (request: FastifyRequest, db: InMemoryDb): string => {
 // ---------------------------------------------------------------------------
 
 export const buildApp = async (): Promise<FastifyInstance> => {
-  const { runtime, loadedModule } = await createRuntimeContext();
+  // Providers are created once and reused across module reloads
+  const primaryProvider = createProviderFromEnv();
+  const fallbackProvider = process.env.GATEWAY_LLM_FALLBACK_PROVIDER
+    ? createProvider({
+        provider: process.env.GATEWAY_LLM_FALLBACK_PROVIDER as "openai-compatible" | "anthropic-compatible",
+        baseUrl: process.env.GATEWAY_LLM_FALLBACK_BASE_URL,
+        apiKey: process.env.GATEWAY_LLM_FALLBACK_API_KEY,
+        model: process.env.GATEWAY_LLM_FALLBACK_MODEL,
+        endpointPath: process.env.GATEWAY_LLM_FALLBACK_ENDPOINT_PATH
+      })
+    : undefined;
+  const gatewayProvider = createGatewayProviderFromEnv(primaryProvider, fallbackProvider);
+
+  if (serverConfig.llmMetricsLogIntervalMs > 0) {
+    setInterval(() => {
+      const metrics = gatewayProvider.getMetrics();
+      console.log("[LLM Metrics]", JSON.stringify(metrics));
+    }, serverConfig.llmMetricsLogIntervalMs);
+  }
+
+  const createRuntimeContext = async (): Promise<RuntimeContext> => {
+    const loadedModule = await loadGameModuleFromPath(process.env.GAME_MODULE_PATH);
+    const runtime = new EngineRuntime(loadedModule.gameModule, { provider: gatewayProvider });
+    return { loadedModule, runtime };
+  };
+
+  let runtimeCtx = await createRuntimeContext();
   const db = createInMemoryDb();
   const persistence = await initPersistence(db);
 
@@ -412,7 +407,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       }
     : undefined;
 
-  const processor = new ActionProcessor(runtime, worldStore, persistence.prisma, {
+  const processorCallbacks: ProcessorCallbacks = {
     getSession(sessionId) {
       const s = db.sessionsById.get(sessionId);
       if (!s) return undefined;
@@ -468,7 +463,34 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
       await persistSession(session);
     }
-  }, architect);
+  };
+
+  let processor = new ActionProcessor(runtimeCtx.runtime, worldStore, persistence.prisma, processorCallbacks, architect);
+
+  // ---------------------------------------------------------------------------
+  // Module hot-reload
+  // ---------------------------------------------------------------------------
+
+  let reloading = false;
+  const reloadModule = async (): Promise<void> => {
+    if (reloading) {
+      console.log("[reload] Already in progress, skipping");
+      return;
+    }
+    reloading = true;
+    try {
+      const newCtx = await createRuntimeContext();
+      const drained = await processor.drain(30_000);
+      if (!drained) console.warn("[reload] Drain timed out after 30s, forcing swap");
+      runtimeCtx = newCtx;
+      processor = new ActionProcessor(newCtx.runtime, worldStore, persistence.prisma, processorCallbacks, architect);
+      console.log("[reload] Module reloaded:", newCtx.loadedModule.entryPath);
+    } catch (err) {
+      console.error("[reload] Failed to load new module, keeping current:", err);
+    } finally {
+      reloading = false;
+    }
+  };
 
   app.addHook("onClose", async () => {
     if (persistence.prisma) await persistence.prisma.$disconnect();
@@ -481,8 +503,8 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   app.get("/health", async () => ({
     status: "ok",
     service: "gateway",
-    module: runtime.getManifest().name,
-    modulePath: loadedModule.modulePath
+    module: runtimeCtx.runtime.getManifest().name,
+    modulePath: runtimeCtx.loadedModule.modulePath
   }));
 
   app.get("/llm/provider", async () => ({
@@ -494,13 +516,28 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   }));
 
   app.get("/module/info", async () => {
-    const manifest = runtime.getManifest();
+    const manifest = runtimeCtx.runtime.getManifest();
     return {
       name: manifest.name,
       version: manifest.version,
       capabilities: manifest.capabilities,
-      availableClasses: runtime.getAvailableClasses()
+      availableClasses: runtimeCtx.runtime.getAvailableClasses()
     };
+  });
+
+  app.post("/admin/reload", async (request, reply) => {
+    const adminToken = process.env.ADMIN_TOKEN;
+    if (!adminToken) {
+      return reply.code(403).send({ error: "RELOAD_DISABLED", message: "ADMIN_TOKEN not configured" });
+    }
+    const authHeader = request.headers.authorization ?? "";
+    const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
+    if (provided !== adminToken) {
+      return reply.code(401).send({ error: "UNAUTHORIZED" });
+    }
+    // Acknowledge immediately — drain may take up to 30s
+    void reply.code(202).send({ status: "reload_initiated" });
+    void reloadModule();
   });
 
   // ---------------------------------------------------------------------------
@@ -600,8 +637,8 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     const campaign: Campaign = {
       id: randomUUID(),
       title: parsed.data.title,
-      moduleName: runtime.getManifest().name,
-      moduleVersion: runtime.getManifest().version,
+      moduleName: runtimeCtx.runtime.getManifest().name,
+      moduleVersion: runtimeCtx.runtime.getManifest().version,
       ownerId: userId,
       memberIds: new Set([userId]),
       createdAt: new Date().toISOString()
@@ -611,7 +648,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     await persistCampaignMember(campaign.id, userId, "owner");
 
     // Initialise canonical world state from game module
-    const initialWorldState = runtime.getInitialWorldState();
+    const initialWorldState = runtimeCtx.runtime.getInitialWorldState();
     await worldStore.initCampaign(campaign.id, initialWorldState);
 
     logGameEvent("CAMPAIGN_CREATED", {
@@ -773,7 +810,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     }
 
     const sessionId = randomUUID();
-    const template = runtime.getCharacterTemplate(parsed.data.className);
+    const template = runtimeCtx.runtime.getCharacterTemplate(parsed.data.className);
 
     // Initial character state from template
     let initialCharacterState: Record<string, unknown> = {
@@ -787,7 +824,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     const currentWorldState = await worldStore.getView(campaign.id);
 
     // Run onCharacterCreated hooks — result goes to canonical world
-    const charPatch = await runtime.onCharacterCreated({
+    const charPatch = await runtimeCtx.runtime.onCharacterCreated({
       tenantId: campaign.ownerId,
       campaignId: campaign.id,
       playerId: userId,
@@ -812,7 +849,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       : currentWorldState;
 
     // Run onSessionStart hooks
-    const sessionPatch = await runtime.startSession({
+    const sessionPatch = await runtimeCtx.runtime.startSession({
       tenantId: campaign.ownerId,
       campaignId: campaign.id,
       sessionId,
@@ -843,7 +880,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       characterState: initialCharacterState,
       status: "active",
       events: [],
-      suggestedActions: runtime.getSuggestedActions({ worldState: worldAfterChar }),
+      suggestedActions: runtimeCtx.runtime.getSuggestedActions({ worldState: worldAfterChar }),
       summary: undefined,
       createdAt: new Date().toISOString()
     };
@@ -1027,7 +1064,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     const worldView = await worldStore.getView(campaign.id);
     const mergedState = { ...worldView, ...session.characterState };
     return {
-      suggestedActions: runtime.getSuggestedActions({ worldState: mergedState })
+      suggestedActions: runtimeCtx.runtime.getSuggestedActions({ worldState: mergedState })
     };
   });
 
@@ -1070,7 +1107,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       characterState: session.characterState,
       events: session.events,
       createdAt: session.createdAt,
-      resourceSchema: loadedModule.gameModule.resources ?? []
+      resourceSchema: runtimeCtx.loadedModule.gameModule.resources ?? []
     };
   });
 
@@ -1096,7 +1133,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     const currentWorldState = await worldStore.getView(campaign.id);
     const mergedState = { ...currentWorldState, ...session.characterState };
 
-    const endPatch = await runtime.endSession({
+    const endPatch = await runtimeCtx.runtime.endSession({
       tenantId: campaign.ownerId,
       campaignId: campaign.id,
       sessionId: session.id,
@@ -1128,6 +1165,33 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       }
     };
   });
+
+  // ---------------------------------------------------------------------------
+  // Signal-based and file-watch reload triggers
+  // ---------------------------------------------------------------------------
+
+  process.on("SIGHUP", () => {
+    console.log("[reload] SIGHUP received, triggering module reload");
+    void reloadModule();
+  });
+
+  if (process.env.NODE_ENV !== "production" && process.env.GAME_MODULE_PATH) {
+    const { watch } = await import("node:fs");
+    const { resolve: resolvePath } = await import("node:path");
+    const resolutionBase = process.env.INIT_CWD?.trim() ? process.env.INIT_CWD : process.cwd();
+    const watchPath = resolvePath(resolutionBase, process.env.GAME_MODULE_PATH.trim());
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    watch(watchPath, { recursive: true }, (_, filename) => {
+      if (!filename) return;
+      if (filename.startsWith("node_modules") || filename.startsWith("dist")) return;
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        console.log(`[reload] File changed: ${filename}`);
+        void reloadModule();
+      }, 500);
+    });
+    console.log(`[reload] Watching for changes: ${watchPath}`);
+  }
 
   return app;
 };

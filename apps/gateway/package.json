@@ -20,10 +20,10 @@
     "@opendungeon/shared": "workspace:*",
     "@prisma/client": "^6.6.0",
     "fastify": "^5.2.1",
+    "tsx": "^4.19.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {
-    "prisma": "^6.6.0",
-    "tsx": "^4.19.3"
+    "prisma": "^6.6.0"
   }
 }

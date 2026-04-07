@@ -1,6 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { tsImport } from "tsx/esm/api";
 import type { GameModule, TypeScriptModuleExtension } from "@opendungeon/content-sdk";
 import { moduleManifestSchema } from "@opendungeon/shared";
 
@@ -101,7 +102,8 @@ export const loadGameModuleFromPath = async (modulePathEnv: string | undefined):
   // If there's a TypeScript entry point, load and merge additional mechanics
   if (entryPath !== DECLARATIVE_SENTINEL) {
     try {
-      const loaded = await import(pathToFileURL(entryPath).href);
+      const entryUrl = pathToFileURL(entryPath).href;
+      const loaded = await tsImport(`${entryUrl}?t=${Date.now()}`, { parentURL: import.meta.url });
       const exportedValue = "default" in loaded ? loaded.default : loaded;
       const tsExtension = assertTypeScriptExtension(exportedValue, entryPath);
 

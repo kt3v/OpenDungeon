@@ -1,5 +1,5 @@
 import { defineMechanics } from "@opendungeon/content-sdk";
-import { extractionMechanic } from "./mechanics/extraction.js";
+import { extractionMechanic } from "./logic/extraction.js";
 
 /**
  * TypeScript extension for OpenDungeon Classic.

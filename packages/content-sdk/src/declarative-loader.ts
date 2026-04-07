@@ -17,7 +17,7 @@
  *   indicators/*.json   — UI resource indicators
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { moduleManifestSchema } from "@opendungeon/shared";
 import type { ModuleManifest } from "@opendungeon/shared";
@@ -40,6 +40,16 @@ import {
 
 const FALLBACK_CLASS: CharacterTemplate = { level: 1, hp: 100 };
 const FALLBACK_CLASS_NAME = "Adventurer";
+
+/**
+ * Resolve the base directory for content files.
+ * If a `content/` subdirectory exists, content lives there.
+ * Otherwise falls back to the module root (legacy layout).
+ */
+const resolveContentBase = (modulePath: string): string => {
+  const contentDir = join(modulePath, "content");
+  return existsSync(contentDir) ? contentDir : modulePath;
+};
 
 export interface DeclarativeModuleResult {
   gameModule: GameModule;
@@ -82,15 +92,16 @@ export interface DeclarativeBaseResult {
  */
 export const loadDeclarativeGameModule = (modulePath: string): DeclarativeModuleResult => {
   const warnings: string[] = [];
+  const contentBase = resolveContentBase(modulePath);
 
-  // ── manifest (required) ─────────────────────────────────────────────────
+  // ── manifest (required) — always at module root ──────────────────────────
   const manifestRaw = JSON.parse(readFileSync(join(modulePath, "manifest.json"), "utf8"));
   const manifest = moduleManifestSchema.parse(manifestRaw);
 
   // ── setting.json (optional) ──────────────────────────────────────────────
   let settingConfig: SettingConfig | undefined;
   try {
-    const raw = JSON.parse(readFileSync(join(modulePath, "setting.json"), "utf8"));
+    const raw = JSON.parse(readFileSync(join(contentBase, "setting.json"), "utf8"));
     if (raw && typeof raw === "object" && !Array.isArray(raw)) {
       settingConfig = raw as SettingConfig;
     }
@@ -99,10 +110,10 @@ export const loadDeclarativeGameModule = (modulePath: string): DeclarativeModule
   }
 
   // ── lore/*.md (optional) ─────────────────────────────────────────────────
-  const loreFiles = loadLoreFilesSync(join(modulePath, "lore"));
+  const loreFiles = loadLoreFilesSync(join(contentBase, "lore"));
 
   // ── classes.json (optional) ──────────────────────────────────────────────
-  const classData = loadClassesFileSync(join(modulePath, "classes.json"));
+  const classData = loadClassesFileSync(join(contentBase, "classes.json"));
   if (!classData) {
     warnings.push(
       `No classes.json found — using single default class "${FALLBACK_CLASS_NAME}". ` +
@@ -122,13 +133,13 @@ export const loadDeclarativeGameModule = (modulePath: string): DeclarativeModule
   };
 
   // ── dm.md + dm-config.json (optional) ────────────────────────────────────
-  const dmConfig = loadDmConfigFileSync(join(modulePath, "dm-config.json")) ?? {};
+  const dmConfig = loadDmConfigFileSync(join(contentBase, "dm-config.json")) ?? {};
 
   // ── initial-state.json (optional) ────────────────────────────────────────
-  const initialState = loadInitialStateFileSync(join(modulePath, "initial-state.json")) ?? {};
+  const initialState = loadInitialStateFileSync(join(contentBase, "initial-state.json")) ?? {};
 
   // ── indicators/*.json (optional) ─────────────────────────────────────────
-  const resources = loadResourcesDirSync(join(modulePath, "indicators"));
+  const resources = loadResourcesDirSync(join(contentBase, "indicators"));
 
   const gameModule: GameModule = {
     manifest,
@@ -158,15 +169,16 @@ export const loadDeclarativeGameModule = (modulePath: string): DeclarativeModule
  */
 export const loadDeclarativeModuleBase = (modulePath: string): DeclarativeBaseResult => {
   const warnings: string[] = [];
+  const contentBase = resolveContentBase(modulePath);
 
-  // ── manifest (required) ─────────────────────────────────────────────────
+  // ── manifest (required) — always at module root ──────────────────────────
   const manifestRaw = JSON.parse(readFileSync(join(modulePath, "manifest.json"), "utf8"));
   const manifest = moduleManifestSchema.parse(manifestRaw);
 
   // ── setting.json (optional) ──────────────────────────────────────────────
   let settingConfig: SettingConfig | undefined;
   try {
-    const raw = JSON.parse(readFileSync(join(modulePath, "setting.json"), "utf8"));
+    const raw = JSON.parse(readFileSync(join(contentBase, "setting.json"), "utf8"));
     if (raw && typeof raw === "object" && !Array.isArray(raw)) {
       settingConfig = raw as SettingConfig;
     }
@@ -175,10 +187,10 @@ export const loadDeclarativeModuleBase = (modulePath: string): DeclarativeBaseRe
   }
 
   // ── lore/*.md (optional) ─────────────────────────────────────────────────
-  const loreFiles = loadLoreFilesSync(join(modulePath, "lore"));
+  const loreFiles = loadLoreFilesSync(join(contentBase, "lore"));
 
   // ── classes.json (optional) ──────────────────────────────────────────────
-  const classData = loadClassesFileSync(join(modulePath, "classes.json"));
+  const classData = loadClassesFileSync(join(contentBase, "classes.json"));
   if (!classData) {
     warnings.push(
       `No classes.json found — using single default class "${FALLBACK_CLASS_NAME}". ` +
@@ -198,13 +210,13 @@ export const loadDeclarativeModuleBase = (modulePath: string): DeclarativeBaseRe
   };
 
   // ── dm.md + dm-config.json (optional) ────────────────────────────────────
-  const dmConfig = loadDmConfigFileSync(join(modulePath, "dm-config.json")) ?? {};
+  const dmConfig = loadDmConfigFileSync(join(contentBase, "dm-config.json")) ?? {};
 
   // ── initial-state.json (optional) ────────────────────────────────────────
-  const initialState = loadInitialStateFileSync(join(modulePath, "initial-state.json")) ?? {};
+  const initialState = loadInitialStateFileSync(join(contentBase, "initial-state.json")) ?? {};
 
   // ── indicators/*.json (optional) ─────────────────────────────────────────
-  const resources = loadResourcesDirSync(join(modulePath, "indicators"));
+  const resources = loadResourcesDirSync(join(contentBase, "indicators"));
 
   const base: DeclarativeModuleBase = {
     manifest,
