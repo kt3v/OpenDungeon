@@ -16,7 +16,7 @@ OpenDungeon separates engine runtime from game content. The engine loads your ga
 │  initial-state.json          │  dist/index.js        │
 │  modules/*.md                │                       │
 │                              │                       │
-│  resources/         lore/                            │
+│  indicators/         lore/                            │
 │  hp.json            factions.md                      │
 │  gold.json          locations.md                     │
 └──────────────────────────────┬───────────────────────┘

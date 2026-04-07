@@ -78,7 +78,7 @@ my-game/
   initial-state.json  ← starting world state
   modules/            ← per-turn context modules (Markdown, LLM-routed)
   lore/               ← world lore (Markdown)
-  resources/          ← UI indicators (JSON)
+  indicators/          ← UI indicators (JSON)
 ```
 
 When you ask the Architect to "add a trading module" or "write a lore file", it writes files directly into this folder.
@@ -202,7 +202,7 @@ The Architect can create or overwrite any of these files inside your module root
 | `setting.json` | World bible (era, tone, taboos) |
 | `classes.json` | Character classes and starting stats |
 | `initial-state.json` | Starting world state for new campaigns |
-| `resources/<id>.json` | UI resource indicator |
+| `indicators/<id>.json` | UI resource indicator |
 
 The Architect will never write outside your module root, and will never touch engine packages or gateway internals.
 

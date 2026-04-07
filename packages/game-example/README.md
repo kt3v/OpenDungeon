@@ -18,7 +18,7 @@ The reference implementation for OpenDungeon. This module demonstrates **TypeScr
 - **Mechanics-first gameplay actions** — gameplay actions (`extract`, `camp`, `revive`) live in TypeScript mechanics
 - **Routed markdown context modules** — DM guidance lives in `modules/*.md` and is selected per action
 - **Setting system** — structured `setting.json` + rich markdown lore in `lore/`
-- **Resource indicators** — HP, gold, inventory, location mapped to UI via `resources/*.json`
+- **Resource indicators** — HP, gold, inventory, location mapped to UI via `indicators/*.json`
 
 ---
 
@@ -46,7 +46,7 @@ packages/game-example/
     camping.md
     revival.md
 
-  resources/                # UI indicators — no TypeScript needed
+  indicators/               # UI indicators — no TypeScript needed
     hp.json
     gold.json
     inventory.json

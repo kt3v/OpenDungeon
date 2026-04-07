@@ -210,7 +210,7 @@ const createModuleFiles = ({ absTargetDir, packageName, contentSdkDependency, ty
           "dm-config.json",
           "initial-state.json",
           "modules",
-          "resources",
+          "indicators",
           "lore"
         ],
         scripts: {
@@ -237,7 +237,7 @@ const createModuleFiles = ({ absTargetDir, packageName, contentSdkDependency, ty
           "dm-config.json",
           "initial-state.json",
           "modules",
-          "resources",
+          "indicators",
           "lore"
         ]
       };
@@ -378,7 +378,7 @@ import { myMechanic } from "./mechanics/my-mechanic.js";
 /**
  * TypeScript extension for ${packageName}.
  *
- * All module data (classes, DM config, setting, context modules, resources)
+ * All module data (classes, DM config, setting, context modules, indicators)
  * is loaded from JSON/Markdown files in the module root.
  *
  * This file only exports additional mechanics that implement complex,
@@ -446,7 +446,7 @@ ${typescript ? "After editing TypeScript files, run `pnpm build` to recompile." 
 │   └── exploration.md
 ├── lore/                 # Markdown lore files
 │   └── README.md
-├── resources/            # UI resource indicators
+├── indicators/           # UI resource indicators
 │   ├── hp.json
 │   └── location.json
 ${typescript ? `├── src/                  # TypeScript mechanics (optional)
@@ -507,8 +507,8 @@ See the [game-example](../packages/game-example/) for a reference implementation
     { path: resolve(absTargetDir, "dm-config.json"), content: JSON.stringify(dmConfigJson, null, 2) + "\n" },
     { path: resolve(absTargetDir, "initial-state.json"), content: JSON.stringify(initialStateJson, null, 2) + "\n" },
     { path: resolve(absTargetDir, "modules/exploration.md"), content: explorationModule },
-    { path: resolve(absTargetDir, "resources/hp.json"), content: JSON.stringify(hpResource, null, 2) + "\n" },
-    { path: resolve(absTargetDir, "resources/location.json"), content: JSON.stringify(locationResource, null, 2) + "\n" },
+    { path: resolve(absTargetDir, "indicators/hp.json"), content: JSON.stringify(hpResource, null, 2) + "\n" },
+    { path: resolve(absTargetDir, "indicators/location.json"), content: JSON.stringify(locationResource, null, 2) + "\n" },
     { path: resolve(absTargetDir, "lore/README.md"), content: loreReadme }
   ];
 
@@ -530,7 +530,7 @@ See the [game-example](../packages/game-example/) for a reference implementation
 
   // Create directories
   mkdirSync(resolve(absTargetDir, "modules"), { recursive: true });
-  mkdirSync(resolve(absTargetDir, "resources"), { recursive: true });
+  mkdirSync(resolve(absTargetDir, "indicators"), { recursive: true });
   mkdirSync(resolve(absTargetDir, "lore"), { recursive: true });
   if (typescript) {
     mkdirSync(resolve(absTargetDir, "src"), { recursive: true });

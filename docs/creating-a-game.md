@@ -52,7 +52,7 @@ my-game/
   modules/              ← per-turn context modules (LLM-routed)
     stealth.md
     trading.md
-  resources/            ← UI indicators (HP bar, gold counter, etc.)
+  indicators/           ← UI indicators (HP bar, gold counter, etc.)
     hp.json
     gold.json
 ```
@@ -289,7 +289,7 @@ Per-character state (gold, inventory, location) is initialized in TypeScript mec
 
 ---
 
-### `resources/*.json` — UI indicators
+### `indicators/*.json` — UI indicators
 
 Map world/character state to visible indicators in the game UI:
 
@@ -371,7 +371,7 @@ pnpm od create-module ../my-game --typescript
 # Requires pnpm install && pnpm build before running
 ```
 
-The manifest `entry` points to `"dist/index.js"`. Your `src/index.ts` only exports mechanics — all other data (classes, DM config, setting, resources) continues to come from JSON/Markdown files in the module root:
+The manifest `entry` points to `"dist/index.js"`. Your `src/index.ts` only exports mechanics — all other data (classes, DM config, setting, indicators) continues to come from JSON/Markdown files in the module root:
 
 ```typescript
 // src/index.ts
@@ -391,6 +391,6 @@ See [Mechanics](./mechanics.md) for a full guide on TypeScript mechanics.
 
 ## Reference implementation
 
-`packages/game-example` is a full TypeScript game module with complex mechanics (per-player location, cross-session loot extraction). It shows what's possible with TypeScript mode, and demonstrates how TypeScript mechanics coexist with declarative modules and resources.
+`packages/game-example` is a full TypeScript game module with complex mechanics (per-player location, cross-session loot extraction). It shows what's possible with TypeScript mode, and demonstrates how TypeScript mechanics coexist with declarative modules and indicators.
 
 For a simpler reference, run `pnpm od create-module` and look at the generated declarative module scaffold.

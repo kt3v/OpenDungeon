@@ -234,7 +234,7 @@ const isResourceSchema = (value: unknown): value is ResourceSchema => {
  * import { defineGameModule, loadResourcesDirSync } from "@opendungeon/content-sdk";
  *
  * export default defineGameModule({
- *   resources: loadResourcesDirSync(new URL("./resources", import.meta.url).pathname),
+ *   resources: loadResourcesDirSync(new URL("./indicators", import.meta.url).pathname),
  *   // ...
  * });
  * ```

@@ -365,10 +365,10 @@ export const defineSkill = (schema: SkillSchema): SkillSchema => schema;
  * the underlying data is written by mechanics via worldPatch / characterPatch.
  *
  * @example
- * // resources/hp.json
+ * // indicators/hp.json
  * { "id": "hp", "label": "HP", "source": "character", "stateKey": "hp", "type": "number" }
  *
- * // resources/inventory.json
+ * // indicators/inventory.json
  * { "id": "inventory", "label": "Inventory", "source": "characterState",
  *   "stateKey": "inventory", "type": "list", "defaultValue": [] }
  */

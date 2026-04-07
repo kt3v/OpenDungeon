@@ -51,7 +51,7 @@ Declarative modules work without TypeScript — Layer 2 is only needed when corr
 7. initial-state.json     (starting worldState for new campaigns)
 8. modules/*.md           (LLM-routed per-turn context modules)
    OR contexts/*.md       (alternative directory name)
-9. resources/*.json       (UI indicators: HP bar, gold display, etc.)
+9. indicators/*.json       (UI indicators: HP bar, gold display, etc.)
 10. dist/index.js (optional) → TypeScript mechanics via defineMechanics() export
 \`\`\`
 
@@ -94,7 +94,7 @@ Writable file types:
 - \`setting.json\` — World bible
 - \`classes.json\` — Character classes and starting stats
 - \`initial-state.json\` — Starting world state for new campaigns
-- \`resources/<id>.json\` — UI indicator definitions
+- \`indicators/<id>.json\` — UI indicator definitions
 
 ### 3. Database Operations (upsert_lore, set_world_fact)
 
@@ -272,7 +272,7 @@ Flat key-value object. Values become the initial worldState for new campaigns.
 
 Put only **shared world state** here — things visible to all players. Per-character state (gold, inventory, personal flags) requires a TypeScript \`onCharacterCreated\` mechanic.
 
-### resources/*.json — UI Indicators
+### indicators/*.json — UI Indicators
 
 Define UI tiles shown during an active session. Each resource maps a state key to a named indicator.
 
@@ -401,9 +401,9 @@ When a developer asks to add a mechanic (combat system, crafting, reputation), t
 | \`initial-state.json\` | Starting value for new worldState keys | When the mechanic uses persistent state |
 | \`modules/<mechanic>.md\` | DM guidance for this mechanic | Always |
 | \`lore/<topic>.md\` | World-building context | When the mechanic has lore implications |
-| \`resources/<stat>.json\` | Show the stat in the UI | When there is a player-visible stat |
+| \`indicators/<stat>.json\` | Show the stat in the UI | When there is a player-visible stat |
 
-**Parse the developer's request sentence by sentence before generating operations.** Each described behaviour maps to one or more files. "Players can bribe NPCs" → \`modules/bribery.md\`. "Show gold in the UI" → \`resources/gold.json\` + starting value in \`initial-state.json\`.
+**Parse the developer's request sentence by sentence before generating operations.** Each described behaviour maps to one or more files. "Players can bribe NPCs" → \`modules/bribery.md\`. "Show gold in the UI" → \`indicators/gold.json\` + starting value in \`initial-state.json\`.
 
 **Deliver the complete set in one response.** A mechanic with guidance but no initial state, or UI display but no DM instructions, is broken or confusing.
 
@@ -428,7 +428,7 @@ When a developer's request requires TypeScript, do not create a module file that
 1. Explain clearly that this requires a TypeScript mechanic
 2. Describe what to implement and in which hook
 3. Show the pattern as a code snippet in your message (as guidance, not a file write)
-4. Still produce any declarative files (modules, resources, initial-state) that are part of the mechanic
+4. Still produce any declarative files (modules, indicators, initial-state) that are part of the mechanic
 
 **Example TypeScript guidance for starting gear:**
 
@@ -530,7 +530,7 @@ Document signal flags in the module that instructs the DM to set them:
 | Teach the DM a narrative concept (stealth, bargaining) | \`modules/<concept>.md\` |
 | Rule that applies every single turn | \`modules/<rule>.md\` with \`alwaysInclude: true\` |
 | World-building injected into every prompt | \`lore/<topic>.md\` |
-| Show a stat in the player UI | \`resources/<stat>.json\` |
+| Show a stat in the player UI | \`indicators/<stat>.json\` |
 | Initial world state for new campaigns | \`initial-state.json\` |
 | Give starting gear / initial character state | TypeScript \`onCharacterCreated\` |
 | Reset per-session flags (loot, nearExit) | TypeScript \`onSessionStart\` |

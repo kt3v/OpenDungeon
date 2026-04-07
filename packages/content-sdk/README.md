@@ -41,7 +41,7 @@ export default defineMechanics({
 });
 ```
 
-All other module data (classes, DM config, setting, resources) is loaded from JSON/Markdown files in the module root.
+All other module data (classes, DM config, setting, indicators) is loaded from JSON/Markdown files in the module root.
 
 ---
 
@@ -180,7 +180,7 @@ interface ActionResult {
 | `loadDmConfigFileSync` | Load `dm-config.json` |
 | `loadDmPromptFileSync` | Load `dm.md` |
 | `loadInitialStateFileSync` | Load `initial-state.json` |
-| `loadResourcesDirSync` | Load all `*.json` resource files from `resources/` |
+| `loadResourcesDirSync` | Load all `*.json` resource files from `indicators/` |
 | `GameModule` | Interface for the game module |
 | `TypeScriptModuleExtension` | Interface for TypeScript-only mechanic exports |
 | `Mechanic` | Interface for a TypeScript mechanic |

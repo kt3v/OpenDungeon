@@ -2,11 +2,11 @@
 
 Resource indicators are UI tiles displayed in the game client during an active session. They show character or world data — HP, gold, inventory, location — dynamically bound to the current state.
 
-Resources are declared in JSON files. Drop a file into your game's `resources/` directory — it's picked up automatically for both declarative and TypeScript modules.
+Resources are declared in JSON files. Drop a file into your game's `indicators/` directory — it's picked up automatically for both declarative and TypeScript modules.
 
 ```
 my-game/
-  resources/
+  indicators/
     hp.json
     gold.json
     inventory.json
@@ -17,7 +17,7 @@ my-game/
 
 ## Quick start
 
-**`resources/hp.json`**
+**`indicators/hp.json`**
 ```json
 {
   "id": "hp",
@@ -329,13 +329,13 @@ If you skip initialization and don't set a `defaultValue`, the indicator shows `
 
 ---
 
-## Where `resources/` lives
+## Where `indicators/` lives
 
 Resources belong at the **module root**, alongside `lore/`, `modules/`, and `src/`:
 
 ```
 my-game/
-  resources/      ← here
+  indicators/      ← here
   modules/
   lore/
   src/

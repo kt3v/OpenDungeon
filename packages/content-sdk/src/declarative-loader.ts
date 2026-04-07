@@ -14,7 +14,7 @@
  *   dm.md               — DM system prompt (markdown)
  *   dm-config.json      — DM guardrails, tool policy, default actions
  *   initial-state.json  — initial worldState for new campaigns
- *   resources/*.json    — UI resource indicators
+ *   indicators/*.json   — UI resource indicators
  */
 
 import { readFileSync } from "node:fs";
@@ -127,8 +127,8 @@ export const loadDeclarativeGameModule = (modulePath: string): DeclarativeModule
   // ── initial-state.json (optional) ────────────────────────────────────────
   const initialState = loadInitialStateFileSync(join(modulePath, "initial-state.json")) ?? {};
 
-  // ── resources/*.json (optional) ──────────────────────────────────────────
-  const resources = loadResourcesDirSync(join(modulePath, "resources"));
+  // ── indicators/*.json (optional) ─────────────────────────────────────────
+  const resources = loadResourcesDirSync(join(modulePath, "indicators"));
 
   const gameModule: GameModule = {
     manifest,
@@ -203,8 +203,8 @@ export const loadDeclarativeModuleBase = (modulePath: string): DeclarativeBaseRe
   // ── initial-state.json (optional) ────────────────────────────────────────
   const initialState = loadInitialStateFileSync(join(modulePath, "initial-state.json")) ?? {};
 
-  // ── resources/*.json (optional) ──────────────────────────────────────────
-  const resources = loadResourcesDirSync(join(modulePath, "resources"));
+  // ── indicators/*.json (optional) ─────────────────────────────────────────
+  const resources = loadResourcesDirSync(join(modulePath, "indicators"));
 
   const base: DeclarativeModuleBase = {
     manifest,
