@@ -1,6 +1,6 @@
 {
   "name": "@opendungeon/architect",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Procedural content generator and chronicler for OpenDungeon campaigns",
   "type": "module",
   "main": "dist/index.js",

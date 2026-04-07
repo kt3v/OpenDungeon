@@ -1,6 +1,6 @@
 {
   "name": "@opendungeon/game-example",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Classic RPG module for OpenDungeon engine",
   "type": "module",
   "main": "content/mechanics/index.ts",
