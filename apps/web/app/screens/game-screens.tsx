@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
 
 type Campaign = {
   id: string;
@@ -502,7 +503,9 @@ export function ActionsScreen(props: ActionsScreenProps) {
       <div className="chronicle-wrap">
         <article className="chronicle-card">
           <p className="chronicle-label">Chronicle</p>
-          <p className="chronicle-text">{narrativeText}</p>
+          <div className="chronicle-text markdown-content">
+            <ReactMarkdown>{narrativeText}</ReactMarkdown>
+          </div>
           {props.sessionSummary && (
             <p className="chronicle-summary">{props.sessionSummary}</p>
           )}
@@ -516,10 +519,12 @@ export function ActionsScreen(props: ActionsScreenProps) {
             History ({props.events.length} events)
           </summary>
           <div className="history-list">
-            {props.events.slice(0, -1).map((ev) => (
+            {[...props.events].slice(0, -1).reverse().map((ev) => (
               <div key={ev.id} className="history-item">
                 <span className="history-action">▷ {ev.actionText}</span>
-                <p className="history-msg">{ev.message}</p>
+                <div className="history-msg markdown-content">
+                  <ReactMarkdown>{ev.message}</ReactMarkdown>
+                </div>
               </div>
             ))}
           </div>

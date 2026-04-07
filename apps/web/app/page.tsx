@@ -929,10 +929,90 @@ export default function HomePage() {
           display: flex;
           flex-direction: column;
           gap: 12px;
+          scrollbar-width: thin;
+          scrollbar-color: var(--border) var(--bg-card);
+        }
+        .history-list::-webkit-scrollbar {
+          width: 8px;
+        }
+        .history-list::-webkit-scrollbar-track {
+          background: var(--bg-card);
+          border-radius: 4px;
+        }
+        .history-list::-webkit-scrollbar-thumb {
+          background: var(--border);
+          border-radius: 4px;
+        }
+        .history-list::-webkit-scrollbar-thumb:hover {
+          background: var(--border-hi);
+        }
+        .history-list::-webkit-scrollbar-corner {
+          background: transparent;
         }
         .history-item { border-top: 1px solid var(--border); padding-top: 10px; }
         .history-action { font-size: 12px; color: var(--gold); font-weight: 500; }
         .history-msg { margin-top: 4px; font-size: 14px; color: var(--text-dim); line-height: 1.5; }
+
+        /* ── Markdown content ─────────────────────────────────────────── */
+        .markdown-content p { margin: 0 0 0.8em 0; }
+        .markdown-content p:last-child { margin-bottom: 0; }
+        .markdown-content strong { color: var(--gold-hi); font-weight: 600; }
+        .markdown-content em { color: var(--text); font-style: italic; }
+        .markdown-content code {
+          background: rgba(10, 8, 6, 0.8);
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-family: 'Courier New', monospace;
+          font-size: 0.9em;
+          color: #d4a868;
+          border: 1px solid var(--border);
+        }
+        .markdown-content pre {
+          background: rgba(10, 8, 6, 0.8);
+          padding: 12px 16px;
+          border-radius: var(--radius-sm);
+          overflow-x: auto;
+          border: 1px solid var(--border);
+          margin: 0.8em 0;
+        }
+        .markdown-content pre code {
+          background: none;
+          padding: 0;
+          border: none;
+          font-size: 0.85em;
+          color: var(--text-dim);
+        }
+        .markdown-content ul, .markdown-content ol {
+          margin: 0.8em 0;
+          padding-left: 1.5em;
+        }
+        .markdown-content li {
+          margin: 0.3em 0;
+          color: var(--text-dim);
+        }
+        .markdown-content li::marker { color: var(--gold); }
+        .markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4 {
+          color: var(--gold-hi);
+          margin: 1.2em 0 0.6em;
+          font-family: 'Cinzel', serif;
+          font-weight: 500;
+        }
+        .markdown-content h1 { font-size: 1.5em; }
+        .markdown-content h2 { font-size: 1.3em; }
+        .markdown-content h3 { font-size: 1.1em; }
+        .markdown-content h4 { font-size: 1em; }
+        .markdown-content blockquote {
+          border-left: 3px solid var(--gold);
+          padding-left: 1em;
+          margin: 0.8em 0;
+          color: var(--text-dim);
+          font-style: italic;
+        }
+        .markdown-content hr {
+          border: none;
+          border-top: 1px solid var(--border);
+          margin: 1.2em 0;
+        }
 
         /* ── Suggestions ─────────────────────────────────────────────── */
         .suggestions-wrap { display: flex; gap: 8px; flex-wrap: wrap; }
