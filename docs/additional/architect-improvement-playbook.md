@@ -187,7 +187,7 @@ Validation:
 - Start in `packages/architect/src/architect.ts` to understand generation + validation.
 - Read `packages/devtools/src/architect-cli.ts` for REPL UX, pre-apply lint, strict blocking.
 - Read `packages/architect/src/prompts/worldbuilder.ts` for behavior constraints.
-- Read `docs/architecture.md` for state model and routing context.
+- Read `docs/engine-dev/architecture.md` for state model and routing context.
 
 ---
 

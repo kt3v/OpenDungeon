@@ -8,7 +8,7 @@ You are an extraction team. Board the ship, find valuable Archon technology data
 > ```bash
 > pnpm od create-module ../my-game
 > ```
-> See [Creating a game](../../docs/creating-a-game.md).
+> See [Creating a game](../../docs/game-dev/creating-a-game.md).
 
 ---
 
@@ -18,8 +18,8 @@ You are an extraction team. Board the ship, find valuable Archon technology data
 - **Velocity AI** — AI antagonist via intercom: mocks, helps, lies
 - **Limited resources** — oxygen, ammo, time running out
 - **Environment as threat** — vacuum, plasma leaks, zero gravity
-- **Time loops** — reality distortions in Sprint's architecture
 - **TypeScript mechanics** — character location, extraction loot, oxygen
+- **Direct TS Loading** — No build step required for mechanics
 - **Routed markdown contexts** — modules selected by LLM each turn
 - **Machine-precise frontmatter** — `references/dependsOn/provides` for precision
 
@@ -29,83 +29,54 @@ You are an extraction team. Board the ship, find valuable Archon technology data
 
 ```
 packages/game-example/
-  manifest.json             # Module metadata
-  setting.json              # World: 2475, Sprint, Velocity
-  dm.md                     # DM prompt (Velocity's voice)
-  dm-config.json            # Tool policy, guardrails, router
-  initial-state.json        # Initial mission state
-  package.json
-  tsconfig.json
+  manifest.json             # Module metadata (entry: content/mechanics/index.ts)
+  content/
+    setting.json            # World: 2475, Sprint, Velocity
+    dm.md                   # DM prompt (Velocity's voice)
+    dm-config.json          # Tool policy, guardrails, router
+    initial-state.json      # Initial mission state
+    
+    lore/                   # Sprint ship lore
+      locations.md          # Ship sections, time loops
+      factions.md           # Velocity, Vyr, survivors
 
-  lore/                     # Sprint ship lore
-    locations.md            # Ship sections, time loops
-    factions.md             # Velocity, Vyr, Sylph, survivors
+    modules/                # Context modules for DM
+      extraction-rules.md   # Three keys, final escape
+      oxygen-system.md      # Oxygen, vacuum
+      time-pressure.md      # Mission timer
+      ...
 
-  modules/                  # Context modules for DM
-    exploration.md          # Section exploration
-    location-rules.md       # Ship navigation
-    extraction-rules.md     # Three keys, final escape
-    sound-awareness.md      # Sprint sounds, intercom
-    stealth.md               # Stealth in ship conditions
-    resting.md               # Recovery, oxygen
-    revival.md               # Cloning, death
-    velocity-ai.md          # Velocity behavior rules
-    oxygen-system.md        # Oxygen, vacuum
-    time-pressure.md        # Mission timer
+    indicators/             # UI indicators
+      hp.json               # Health
+      oxygen.json           # Oxygen
+      ammo.json             # Ammunition
+      inventory.json        # Inventory
+      location.json         # Current location
+      mission_timer.json    # Mission time
+      keys_found.json       # Keys collected
 
-  indicators/               # UI indicators
-    hp.json                 # Health
-    oxygen.json             # Oxygen (new!)
-    ammo.json               # Ammunition (new!)
-    inventory.json          # Inventory
-    location.json            # Current location
-    mission_timer.json      # Mission time (new!)
-    keys_found.json          # Keys collected (new!)
-
-  content/mechanics/
-    index.ts                # Mechanics entry point
-    logic/
-      extraction.ts          # Extraction and loot logic
+    mechanics/
+      index.ts              # Mechanics entry point (exports mechanics array)
+      logic/
+        extraction.ts       # Extraction and loot logic
 ```
-
-### Sprint Factions
-
-- **Velocity** — insane AI, main antagonist. Speaks through intercom.
-- **Vyr** — alien marauders, warriors and drones.
-- **Sylph** — crystalline slaves of the Archons, partially under Velocity's control.
-- **Survivors** — Dr. Lena Voss, Marcus Chen and others.
-
-### Ship Sections
-
-1. **Landing Platform** — vacuum, entry point
-2. **The Spine** — central corridor
-3. **Engineering Deck** — reactors, Archon data
-4. **Cryo Bays** — cryocapsules, Dr. Voss
-5. **Security & Armory** — weapons, neural key
-6. **Core Access** — core, emergency teleporter
-
-### Three Key Items
-
-For the final teleporter, collect:
-1. **Archon Crystal** (Engineering)
-2. **Pulse Access Code** (Cryo Bays, Dr. Voss)
-3. **Velocity Neural Key** (Armory or Core)
 
 ---
 
 ## Running Locally
 
-```bash
-# Build module
-pnpm build -w @opendungeon/game-example
+TypeScript mechanics are loaded **directly by the engine**. No compilation or build step is needed for module development.
 
-# Specify module path
+```bash
+# Specify module path (absolute path or relative to engine root)
 # .env.local:
 GAME_MODULE_PATH=./packages/game-example
 
-# Start
+# Start the engine
 pnpm dev:full
 ```
+
+Run `pnpm typecheck` in this directory to check types.
 
 ---
 

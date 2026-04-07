@@ -597,7 +597,7 @@ const run = async () => {
     process.stdout.write(`  2) Edit setting.json, classes.json, dm.md to describe your world\n`);
     process.stdout.write(`  3) Start the engine: pnpm dev:full\n`);
     process.stdout.write("\nTip: run 'od architect scaffold' to have AI generate your content\n");
-    process.stdout.write("     To add TypeScript later, create src/index.ts and update manifest.json#entry\n");
+    process.stdout.write("     To add TypeScript later, create content/mechanics/index.ts and update manifest.json#entry\n");
   }
 };
 
