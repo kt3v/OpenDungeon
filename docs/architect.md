@@ -221,3 +221,11 @@ od architect analyze --campaign <campaignId> --min-count 3
 ```
 
 See `od help` for flags on each subcommand.
+
+---
+
+## Improvement playbook
+
+For a reusable, agent-oriented guide on improving Architect quality (architecture model, guardrails, KPIs, failure patterns, and upgrade workflow), see:
+
+- `docs/architect-improvement-playbook.md`

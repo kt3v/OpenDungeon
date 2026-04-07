@@ -64,6 +64,17 @@ export interface WorldbuilderTurnResult {
   requiresConfirmation: boolean;
   /** Operations the LLM produced but that failed validation — for debug display */
   droppedOperationCount: number;
+  /** Optional operation-level confidence metadata from the model reviewer pass */
+  operationAssessments: WorldbuilderOperationAssessment[];
+  /** Optional reviewer summary from second-pass critique */
+  reviewerSummary?: string;
+}
+
+export interface WorldbuilderOperationAssessment {
+  opIndex?: number;
+  path?: string;
+  confidence: "low" | "medium" | "high";
+  rationale: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -173,8 +184,54 @@ ${JSON.stringify(ctx.existingLore, null, 2)}`;
       { role: "user", content: input.userMessage }
     ];
 
-    const raw = await this.callWithRepair(messages, "Worldbuilder");
-    return this.parseWorldbuilderResult(raw);
+    const draftRaw = await this.callWithRepair(messages, "Worldbuilder");
+    const reviewedRaw = await this.reviewWorldbuilderDraft({
+      systemWithContext,
+      userMessage: input.userMessage,
+      draftRaw
+    });
+    return this.parseWorldbuilderResult(reviewedRaw);
+  }
+
+  private async reviewWorldbuilderDraft(input: {
+    systemWithContext: string;
+    userMessage: string;
+    draftRaw: string;
+  }): Promise<string> {
+    let draftObj: Record<string, unknown>;
+    try {
+      draftObj = parseJsonObject(input.draftRaw);
+    } catch {
+      return input.draftRaw;
+    }
+
+    const messages: ChatMessage[] = [
+      { role: "system", content: WORLDBUILDER_REVIEWER_PROMPT },
+      {
+        role: "user",
+        content: JSON.stringify(
+          {
+            task: "Review and correct the candidate Worldbuilder output.",
+            userMessage: input.userMessage,
+            architectureContext: input.systemWithContext,
+            candidate: draftObj
+          },
+          null,
+          2
+        )
+      }
+    ];
+
+    try {
+      const reviewedRaw = await this.callWithRepair(messages, "Worldbuilder Reviewer");
+      const reviewedObj = parseJsonObject(reviewedRaw);
+      if (!("message" in reviewedObj) && !("pendingOperations" in reviewedObj)) {
+        return input.draftRaw;
+      }
+      return reviewedRaw;
+    } catch {
+      return input.draftRaw;
+    }
   }
 
   private parseWorldbuilderResult(raw: string): WorldbuilderTurnResult {
@@ -201,7 +258,19 @@ ${JSON.stringify(ctx.existingLore, null, 2)}`;
     const requiresConfirmation =
       typeof obj.requiresConfirmation === "boolean" ? obj.requiresConfirmation : pendingOperations.length > 0;
 
-    return { assistantMessage, pendingOperations, requiresConfirmation, droppedOperationCount };
+    const operationAssessments = parseOperationAssessments(obj.operationAssessments, pendingOperations.length);
+    const reviewerSummary = typeof obj.reviewerSummary === "string" && obj.reviewerSummary.trim()
+      ? obj.reviewerSummary.trim()
+      : undefined;
+
+    return {
+      assistantMessage,
+      pendingOperations,
+      requiresConfirmation,
+      droppedOperationCount,
+      operationAssessments,
+      reviewerSummary
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -242,6 +311,29 @@ ${JSON.stringify(ctx.existingLore, null, 2)}`;
 const JSON_REPAIR_PROMPT =
   "Your previous response was not valid JSON. Return valid JSON only. No markdown fences or commentary.";
 
+const WORLDBUILDER_REVIEWER_PROMPT = `You are the Architect Output Reviewer for OpenDungeon.
+Your job is to review a candidate Worldbuilder JSON response and return a corrected, safer version.
+
+Rules:
+- Preserve user intent and keep output concise.
+- Enforce state-model consistency:
+  - world references/provides should align with initial-state keys.
+  - avoid nested world/character wrapper objects in initial-state unless explicitly required by project conventions.
+  - keep character-state and world-state semantics consistent.
+- Remove or fix malformed operations.
+- Prefer minimal edits over large rewrites.
+
+Return JSON object only with fields:
+{
+  "message": "string",
+  "pendingOperations": [ ... ],
+  "requiresConfirmation": true,
+  "reviewerSummary": "optional short summary",
+  "operationAssessments": [
+    { "opIndex": 0, "path": "optional file path", "confidence": "low|medium|high", "rationale": "short reason" }
+  ]
+}`;
+
 const WORLD_FACT_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z0-9_-]+)*$/;
 const MAX_WORLD_FACT_KEY_LENGTH = 120;
 
@@ -269,6 +361,36 @@ const stripCodeFence = (value: string): string => {
 
 const VALID_LORE_TYPES = new Set(["NPC", "Location", "Item", "Faction", "Lore"]);
 const VALID_MILESTONE_TYPES = new Set(["boss_kill", "story_beat", "campaign_end", "custom"]);
+const VALID_CONFIDENCE = new Set(["low", "medium", "high"]);
+
+const parseOperationAssessments = (
+  value: unknown,
+  pendingOperationCount: number
+): WorldbuilderOperationAssessment[] => {
+  if (!Array.isArray(value)) return [];
+  const out: WorldbuilderOperationAssessment[] = [];
+
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const obj = item as Record<string, unknown>;
+    if (typeof obj.confidence !== "string" || !VALID_CONFIDENCE.has(obj.confidence)) continue;
+    if (typeof obj.rationale !== "string" || !obj.rationale.trim()) continue;
+
+    const opIndex =
+      typeof obj.opIndex === "number" && Number.isInteger(obj.opIndex) && obj.opIndex >= 0 && obj.opIndex < pendingOperationCount
+        ? obj.opIndex
+        : undefined;
+
+    out.push({
+      opIndex,
+      path: typeof obj.path === "string" && obj.path.trim() ? obj.path.trim() : undefined,
+      confidence: obj.confidence as "low" | "medium" | "high",
+      rationale: obj.rationale.trim()
+    });
+  }
+
+  return out;
+};
 
 const validateArchitectOperation = (item: unknown, sessionId: string | undefined): ArchitectOperation | null => {
   if (!item || typeof item !== "object" || Array.isArray(item)) return null;

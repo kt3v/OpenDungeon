@@ -29,6 +29,7 @@ export type {
   ChroniclerLoreEntry,
   ChroniclerResult,
   WorldbuilderMessage,
+  WorldbuilderOperationAssessment,
   WorldbuilderModuleContext,
   WorldbuilderTurnInput,
   WorldbuilderTurnResult

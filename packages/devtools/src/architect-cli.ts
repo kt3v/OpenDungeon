@@ -31,6 +31,244 @@ const loadEnvLocal = (root: string): void => {
   }
 };
 
+const splitFrontmatter = (raw: string): { frontmatter: string; body: string } => {
+  const normalized = raw.replace(/^\uFEFF/, "");
+  const match = normalized.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
+  if (!match) return { frontmatter: "", body: normalized };
+  return { frontmatter: match[1] ?? "", body: match[2] ?? "" };
+};
+
+const parsePrimitiveFrontmatterValue = (value: string): unknown => {
+  const raw = value.trim();
+  if (!raw) return "";
+  if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+    return raw.slice(1, -1);
+  }
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  if (/^-?\d+$/.test(raw)) {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  if (raw.startsWith("[") && raw.endsWith("]")) {
+    const inner = raw.slice(1, -1).trim();
+    if (!inner) return [];
+    return inner
+      .split(",")
+      .map((item) => parsePrimitiveFrontmatterValue(item.trim()))
+      .filter((item): item is string => typeof item === "string" && item.length > 0);
+  }
+  return raw;
+};
+
+const parseFrontmatterObject = (raw: string): Record<string, unknown> => {
+  if (!raw.trim()) return {};
+  const output: Record<string, unknown> = {};
+  let activeArrayKey: string | null = null;
+
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    if (activeArrayKey && trimmed.startsWith("- ")) {
+      const next = parsePrimitiveFrontmatterValue(trimmed.slice(2).trim());
+      if (typeof next === "string" && next.length > 0) {
+        (output[activeArrayKey] as string[]).push(next);
+      }
+      continue;
+    }
+
+    const kv = trimmed.match(/^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$/);
+    if (!kv) {
+      activeArrayKey = null;
+      continue;
+    }
+
+    const key = kv[1]!;
+    const valueRaw = kv[2] ?? "";
+    if (!valueRaw.trim()) {
+      output[key] = [];
+      activeArrayKey = key;
+      continue;
+    }
+
+    output[key] = parsePrimitiveFrontmatterValue(valueRaw);
+    activeArrayKey = null;
+  }
+
+  return output;
+};
+
+const toStringArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const collectDottedKeys = (value: unknown, prefix = ""): string[] => {
+  if (value === null || value === undefined) return [];
+  if (Array.isArray(value)) return prefix ? [prefix] : [];
+  if (typeof value !== "object") return prefix ? [prefix] : [];
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return prefix ? [prefix] : [];
+  const keys: string[] = [];
+  for (const [k, v] of entries) {
+    const next = prefix ? `${prefix}.${k}` : k;
+    keys.push(...collectDottedKeys(v, next));
+  }
+  return keys;
+};
+
+const extractWorldReferenceKey = (ref: string): string | null => {
+  if (!ref.startsWith("world:")) return null;
+  const key = ref.slice("world:".length).trim();
+  return key || null;
+};
+
+const extractCharacterReferenceKey = (ref: string): string | null => {
+  if (!ref.startsWith("character:")) return null;
+  const key = ref.slice("character:".length).trim();
+  return key || null;
+};
+
+const readInitialStateFromDisk = async (moduleRoot: string | undefined): Promise<Record<string, unknown> | null> => {
+  if (!moduleRoot) return null;
+  const initialStatePath = resolve(moduleRoot, "initial-state.json");
+  try {
+    const raw = await readFile(initialStatePath, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
+const lintArchitectOperations = async (
+  pendingOperations: ArchitectOperation[],
+  moduleRoot: string | undefined
+): Promise<ArchitectLintIssue[]> => {
+  const issues: ArchitectLintIssue[] = [];
+  const writeOps = pendingOperations.filter((op): op is Extract<ArchitectOperation, { op: "write_file" }> => op.op === "write_file");
+
+  const moduleMdOps = writeOps.filter((op) => /^(modules|contexts)\/.*\.md$/i.test(op.path));
+  const initialStateOp = writeOps.find((op) => op.path === "initial-state.json");
+  const indicatorOps = writeOps.filter((op) => /^indicators\/.*\.json$/i.test(op.path));
+
+  const referencedWorldKeys = new Set<string>();
+  const providedWorldKeys = new Set<string>();
+  const characterRefs = new Set<string>();
+
+  for (const op of moduleMdOps) {
+    const { frontmatter } = splitFrontmatter(op.content);
+    const parsed = parseFrontmatterObject(frontmatter);
+    const refs = toStringArray(parsed.references ?? parsed.refs);
+    const provides = toStringArray(parsed.provides);
+    for (const ref of refs) {
+      const worldKey = extractWorldReferenceKey(ref);
+      if (worldKey) referencedWorldKeys.add(worldKey);
+      const charKey = extractCharacterReferenceKey(ref);
+      if (charKey) characterRefs.add(charKey);
+    }
+    for (const ref of provides) {
+      const worldKey = extractWorldReferenceKey(ref);
+      if (worldKey) providedWorldKeys.add(worldKey);
+      const charKey = extractCharacterReferenceKey(ref);
+      if (charKey) characterRefs.add(charKey);
+    }
+  }
+
+  let effectiveInitialState = await readInitialStateFromDisk(moduleRoot);
+  if (initialStateOp) {
+    try {
+      const parsed = JSON.parse(initialStateOp.content) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        effectiveInitialState = parsed as Record<string, unknown>;
+      } else {
+        issues.push({ severity: "high", message: "initial-state.json must be a JSON object" });
+      }
+    } catch {
+      issues.push({ severity: "high", message: "initial-state.json content is not valid JSON" });
+    }
+  }
+
+  if (effectiveInitialState) {
+    const worldWrapper = (effectiveInitialState as Record<string, unknown>).world;
+    if (worldWrapper && typeof worldWrapper === "object" && !Array.isArray(worldWrapper)) {
+      issues.push({
+        severity: "high",
+        message: "initial-state.json contains nested `world` object; prefer direct keys matching world references (e.g. `merchant.reputation`)"
+      });
+    }
+
+    const characterWrapper = (effectiveInitialState as Record<string, unknown>).character;
+    if (characterWrapper && typeof characterWrapper === "object" && !Array.isArray(characterWrapper)) {
+      issues.push({
+        severity: "medium",
+        message: "initial-state.json contains nested `character` object; verify character-state ownership vs world-state keys"
+      });
+    }
+
+    const initialKeys = new Set(collectDottedKeys(effectiveInitialState));
+    for (const key of referencedWorldKeys) {
+      if (!initialKeys.has(key)) {
+        issues.push({ severity: "medium", message: `world reference \`${key}\` has no default in effective initial-state.json` });
+      }
+    }
+    for (const key of providedWorldKeys) {
+      if (!initialKeys.has(key)) {
+        issues.push({ severity: "medium", message: `world provide \`${key}\` has no default in effective initial-state.json` });
+      }
+    }
+  }
+
+  if ((referencedWorldKeys.size > 0 || providedWorldKeys.size > 0) && !effectiveInitialState) {
+    issues.push({
+      severity: "medium",
+      message: "world references/provides are present but no initial-state.json found or proposed"
+    });
+  }
+
+  if (characterRefs.size > 0 && initialStateOp) {
+    issues.push({
+      severity: "high",
+      message:
+        "character references detected together with initial-state.json write; this is ambiguous for characterState ownership and must be clarified"
+    });
+  }
+
+  for (const op of indicatorOps) {
+    try {
+      const parsed = JSON.parse(op.content) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+      const obj = parsed as Record<string, unknown>;
+      if (obj.source === "characterState" && typeof obj.stateKey === "string" && obj.stateKey.trim()) {
+        const key = obj.stateKey.trim();
+        if (!characterRefs.has(key)) {
+          issues.push({
+            severity: "medium",
+            message: `indicator \`${op.path}\` uses characterState key \`${key}\` but module references/provides do not mention character:${key}`
+          });
+        }
+      }
+    } catch {
+      issues.push({ severity: "high", message: `indicator file \`${op.path}\` is not valid JSON` });
+    }
+  }
+
+  return issues;
+};
+
 // ---------------------------------------------------------------------------
 // Discovery types
 // ---------------------------------------------------------------------------
@@ -45,6 +283,11 @@ interface DiscoveredCampaign {
   id: string;
   title: string;
   sessionCount: number;
+}
+
+interface ArchitectLintIssue {
+  severity: "high" | "medium";
+  message: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -130,7 +373,7 @@ const discoverCampaigns = async (prisma: PrismaClient): Promise<DiscoveredCampai
       take: 20,
       include: { _count: { select: { sessions: true } } }
     });
-    return rows.map((r) => ({
+    return rows.map((r: { id: string; title: string; _count: { sessions: number } }) => ({
       id: r.id,
       title: r.title,
       sessionCount: r._count.sessions
@@ -286,7 +529,11 @@ const loadModuleContext = async (
       const worldFacts = await prisma.worldFact.findMany({ where: { campaignId } });
       for (const fact of worldFacts) existingWorldState[fact.key] = fact.value;
       const loreRows = await prisma.loreEntry.findMany({ where: { campaignId } });
-      existingLore = loreRows.map((l) => ({ entityName: l.entityName, type: l.type, description: l.description }));
+      existingLore = loreRows.map((l: { entityName: string; type: string; description: string }) => ({
+        entityName: l.entityName,
+        type: l.type,
+        description: l.description
+      }));
     } catch { /* DB not available */ }
   }
 
@@ -328,12 +575,13 @@ const printHelp = (): void => {
   println();
   println("  " + color("help", c.cyan) + "          Show this help message");
   println("  " + color("exit", c.cyan) + " / " + color("quit", c.cyan) + "   Exit the chat");
+  println("  " + color("--strict-ops", c.cyan) + "   Block apply when high-severity pre-apply issues are detected");
   println();
   println(color("  Anything else is sent to the Architect as a request.", c.dim));
   println(color("  Examples:", c.dim));
-  println(color("    create a 'meditate' skill to recover HP (deterministic)", c.dim));
-  println(color("    add a starting-gear hook that gives Warriors a sword", c.dim));
-  println(color("    write a death-check rule that ends the session when HP ≤ 0", c.dim));
+  println(color("    add stamina module with references/provides and matching indicator", c.dim));
+  println(color("    create a negotiation module and align world keys in initial-state", c.dim));
+  println(color("    explain how references/dependsOn affect routing", c.dim));
   println(color("    add an NPC: Gorm the blacksmith, neutral, knows secret passages", c.dim));
   println(color("    how does the turn pipeline work?", c.dim));
   println();
@@ -398,11 +646,13 @@ export const runArchitectCli = async (args: string[]): Promise<void> => {
   let campaignIdOverride: string | undefined;
   let modulePathOverride: string | undefined;
   let autoApply = false;
+  let strictOps = false;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--campaign" && args[i + 1]) campaignIdOverride = args[++i];
     else if (args[i] === "--module" && args[i + 1]) modulePathOverride = args[++i];
     else if (args[i] === "--apply") autoApply = true;
+    else if (args[i] === "--strict-ops") strictOps = true;
   }
 
   // Find project root and load env
@@ -503,6 +753,10 @@ export const runArchitectCli = async (args: string[]): Promise<void> => {
         println();
         println(color("Architect:", c.bold + c.green) + " " + result.assistantMessage);
 
+        if (result.reviewerSummary) {
+          println(color("  Reviewer:", c.dim) + " " + color(result.reviewerSummary, c.dim));
+        }
+
         conversationHistory.push({ role: "user", content: trimmed });
         conversationHistory.push({ role: "assistant", content: result.assistantMessage });
 
@@ -519,7 +773,36 @@ export const runArchitectCli = async (args: string[]): Promise<void> => {
         println();
         println(color(`Pending operations (${result.pendingOperations.length}):`, c.bold));
         result.pendingOperations.forEach((op, i) => println(formatOperation(op, i)));
+
+        if (result.operationAssessments.length > 0) {
+          println();
+          println(color("Operation confidence:", c.bold));
+          result.operationAssessments.forEach((a) => {
+            const ref = typeof a.opIndex === "number" ? `#${a.opIndex + 1}` : (a.path ? a.path : "(unmapped)");
+            const tone = a.confidence === "high" ? c.green : a.confidence === "medium" ? c.yellow : c.red;
+            println(`  ${color(ref, c.bold)} ${color(a.confidence, tone)} — ${color(a.rationale, c.dim)}`);
+          });
+        }
+
+        const lintIssues = await lintArchitectOperations(result.pendingOperations, absModulePath);
+        if (lintIssues.length > 0) {
+          println();
+          println(color("Pre-apply checks:", c.bold));
+          for (const issue of lintIssues) {
+            const icon = issue.severity === "high" ? "✗" : "!";
+            const tone = issue.severity === "high" ? c.red : c.yellow;
+            println(`  ${color(icon, tone)} ${issue.message}`);
+          }
+        }
         println();
+
+        const hasBlockingIssues = lintIssues.some((issue) => issue.severity === "high");
+        if (strictOps && hasBlockingIssues) {
+          println(color("Strict mode blocked apply due to high-severity pre-apply issues. Regenerate or fix the proposal.", c.red));
+          println();
+          prompt();
+          return;
+        }
 
         const applyOps = async (): Promise<void> => {
           const dummyCampaignId = resolvedCampaign?.id ?? "no-campaign";

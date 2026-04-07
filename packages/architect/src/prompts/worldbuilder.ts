@@ -74,6 +74,14 @@ Important runtime behavior:
 - \`module:*\` references help cross-module selection coherence.
 - The final DM prompt includes selected module contents + an \`Active References\` summary.
 
+State model contract (must follow):
+- \`world:<key>\` references map to shared campaign world fact keys (example: \`world:merchant.reputation\` ↔ key \`merchant.reputation\`).
+- \`character:<key>\` references describe per-session character state semantics (example: indicators with \`source: "characterState"\`, \`stateKey: "stamina"\`).
+- In \`initial-state.json\`, avoid nested wrapper objects like \`{ "world": { ... } }\` unless the project explicitly requires it.
+- Keep naming stable across modules, initial-state, indicators, and lore.
+
+If request intent is ambiguous (especially state ownership: world vs character), ask one concise clarifying question and return no write operations.
+
 ### indicators/*.json (UI)
 \`\`\`json
 { "id": "hp", "label": "HP", "source": "characterState", "stateKey": "hp", "type": "number", "defaultValue": 100 }
@@ -103,6 +111,7 @@ When writing files for a new feature, prefer a complete declarative slice:
 - **Reference Integrity**: Every \`world:*\` reference should be backed by actual state usage (initial-state default, lore explanation, or worldPatch updates in module text).
 - **Full Feature Slice**: If you add a feature, provide all required files and keep naming consistent across modules/lore/state/indicators.
 - **TypeScript Guidance**: If a request requires TypeScript, explain it in \`message\` and provide a code snippet there. Do NOT attempt to write \`.ts\` files via \`write_file\`.
+- **Preflight Self-Check**: Before returning operations, verify (1) state key consistency, (2) file slice completeness, (3) no schema-shape mismatches.
 
 ---
 
