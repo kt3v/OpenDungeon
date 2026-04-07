@@ -306,6 +306,13 @@ triggers:
   - look
   - inspect
   - explore
+references:
+  - character:location
+  - world:lastObservation
+provides:
+  - world:lastObservation
+when:
+  - exploration
 ---
 
 ## Exploration Guidance
@@ -442,6 +449,10 @@ priority: 80
 triggers:
   - run
   - sprint
+references:
+  - character:stamina
+provides:
+  - world:lastFatigueState
 ---
 
 ## Stamina Guidance

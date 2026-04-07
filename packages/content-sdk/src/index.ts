@@ -374,6 +374,25 @@ export interface DungeonMasterContextModule {
   priority?: number;
   alwaysInclude?: boolean;
   triggers?: string[];
+  /**
+   * Optional module dependencies by id.
+   * Supports plain ids ("trading") or explicit refs ("module:trading").
+   */
+  dependsOn?: string[];
+  /**
+   * Optional machine-precise refs used by runtime routing.
+   * Supported prefixes: world:, character:, resource:, module:
+   */
+  references?: string[];
+  /**
+   * Optional machine-precise refs this module tends to produce.
+   * Supported prefixes: world:, character:, resource:, module:
+   */
+  provides?: string[];
+  /**
+   * Optional free-form routing tags/conditions for this module.
+   */
+  when?: string[];
   file?: string;
 }
 

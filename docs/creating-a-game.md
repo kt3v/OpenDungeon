@@ -254,6 +254,15 @@ triggers:
   - buy
   - sell
   - merchant
+dependsOn:
+  - module:economy-core
+references:
+  - world:merchant.reputation
+  - character:gold
+provides:
+  - world:lastTradeOutcome
+when:
+  - in_town
 ---
 
 ## Trading Rules
@@ -266,11 +275,29 @@ Frontmatter fields:
 - `priority` (number, optional) — higher priority wins during ranking.
 - `alwaysInclude` (boolean, optional) — always include this module before optional modules.
 - `triggers` (string[], optional) — keywords for fast pre-filter before LLM selection.
+- `dependsOn` (string[], optional) — dependent modules by id (`trading` or `module:trading`).
+- `references` (string[], optional) — machine-precise refs used for routing and prompt accuracy.
+  - Supported prefixes: `world:`, `character:`, `resource:`, `module:`.
+- `provides` (string[], optional) — machine refs this module tends to produce.
+- `when` (string[], optional) — free-form routing tags (soft hints).
 
 Notes:
 - Store modules in either `modules/` or `contexts/` near `dm-config.json`.
 - Do not set per-module token limits; router uses the global `contextTokenBudget`.
 - Keep modules short and narrowly scoped to one mechanic/domain.
+- Frontmatter is soft-validated: invalid entries are ignored with warnings, not runtime crashes.
+
+### Why keep JSON if modules are md-first?
+
+Use Markdown for gameplay logic and instructions. Keep JSON for stable runtime contracts:
+
+- `manifest.json` — module identity, compatibility, entrypoint
+- `classes.json` — structured character templates and defaults
+- `dm-config.json` — guardrails/tool policy/router limits
+- `initial-state.json` — deterministic starting world state
+- `indicators/*.json` — strict UI/resource contracts
+
+In short: `md` is for authoring flexibility and expressive logic; `json` is for predictable machine structure.
 
 ---
 
@@ -358,6 +385,7 @@ pnpm od validate-module ../my-game
 ```
 
 Checks all JSON files against their schemas and reports every error at once.
+Use `pnpm od validate-module ../my-game --strict-frontmatter` to fail on frontmatter warnings in `modules/*.md`.
 
 ---
 

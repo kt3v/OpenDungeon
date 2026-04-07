@@ -6,6 +6,13 @@ triggers:
   - look
   - inspect
   - observe
+references:
+  - character:location
+  - world:lastObservation
+provides:
+  - world:lastObservation
+when:
+  - exploration
 ---
 
 ## Exploration State

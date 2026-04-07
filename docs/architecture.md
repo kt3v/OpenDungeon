@@ -82,6 +82,48 @@ ActionResult → player
 
 **Key property:** the DM is the router. It sees all registered mechanic tools and decides whether to invoke one or handle the action narratively. This means players can write in any language or phrasing — the DM understands intent, not keywords.
 
+### MD-first context routing (machine references)
+
+Context modules in `modules/*.md` can include machine-precise frontmatter (`references`, `dependsOn`, `provides`, `when`).
+These fields are optional and soft-validated: invalid entries are ignored with warnings, not runtime crashes.
+
+```
+Player action + worldState
+        │
+        ▼
+Keyword prefilter (triggers + when + world reference matches)
+        │
+        ▼
+LLM candidate selection
+        │
+        ▼
+Dependency expansion (dependsOn)
+        │
+        ▼
+Reference-aware ranking
+  • priority
+  • references:world:* matches current worldState paths
+  • references:module:* matches selected module set
+  • provides:* gives a small boost
+        │
+        ▼
+Token budget cut
+        │
+        ▼
+Injected into DM prompt:
+  1) Active Context Modules
+  2) Active References (compact machine ref summary)
+```
+
+| Reference type | Runtime effect |
+|---|---|
+| `world:<path>` | Increases candidate/rank score when path matches current `worldState` keys (exact or prefix match). |
+| `module:<id>` | Increases rank if referenced module is already selected in the same turn. |
+| `character:<path>` | Included in `Active References` prompt section for DM precision (no direct state-path scoring yet). |
+| `resource:<id>` | Included in `Active References` prompt section for DM/UI alignment (no direct state-path scoring yet). |
+| `dependsOn` | Expands selected module set with linked modules before final ranking (within max module cap). |
+| `provides` | Adds small rank boost when provided world refs match active `worldState` paths. |
+
 ### DM system prompt structure
 
 The DM system prompt is built in layers, injected in this order:

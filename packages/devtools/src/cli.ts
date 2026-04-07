@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 import { access } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { resolve, join, dirname } from "node:path";
 import { moduleManifestSchema, classesFileSchema, dmConfigFileSchema, initialStateFileSchema } from "@opendungeon/shared";
 import { runArchitectCli } from "./architect-cli.js";
@@ -16,6 +17,193 @@ import { runRealtime } from "./commands/realtime.js";
 import { runConfigure } from "./commands/configure.js";
 import { runReset } from "./commands/reset.js";
 import { runCreateModule } from "./commands/create-module.js";
+
+const MODULE_DEPENDENCY_PATTERN = /^(?:module:)?[A-Za-z0-9_.-]+$/;
+const MACHINE_REFERENCE_PATTERN = /^(world|character|resource|module):[A-Za-z0-9_.-]+$/;
+
+const splitFrontmatter = (raw: string): { frontmatter: string; body: string } => {
+  const normalized = raw.replace(/^\uFEFF/, "");
+  const match = normalized.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
+  if (!match) {
+    return { frontmatter: "", body: normalized };
+  }
+
+  return {
+    frontmatter: match[1] ?? "",
+    body: match[2] ?? ""
+  };
+};
+
+const parsePrimitiveFrontmatterValue = (value: string): unknown => {
+  const raw = value.trim();
+  if (!raw) return "";
+
+  if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+    return raw.slice(1, -1);
+  }
+
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+
+  if (/^-?\d+$/.test(raw)) {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  if (raw.startsWith("[") && raw.endsWith("]")) {
+    const inner = raw.slice(1, -1).trim();
+    if (!inner) return [];
+    return inner
+      .split(",")
+      .map((item) => parsePrimitiveFrontmatterValue(item.trim()))
+      .filter((item): item is string => typeof item === "string" && item.length > 0);
+  }
+
+  return raw;
+};
+
+const parseFrontmatterObject = (raw: string): Record<string, unknown> => {
+  if (!raw.trim()) return {};
+
+  const output: Record<string, unknown> = {};
+  let activeArrayKey: string | null = null;
+
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    if (activeArrayKey && trimmed.startsWith("- ")) {
+      const next = parsePrimitiveFrontmatterValue(trimmed.slice(2).trim());
+      if (typeof next === "string" && next.length > 0) {
+        (output[activeArrayKey] as string[]).push(next);
+      }
+      continue;
+    }
+
+    const kv = trimmed.match(/^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$/);
+    if (!kv) {
+      activeArrayKey = null;
+      continue;
+    }
+
+    const key = kv[1]!;
+    const valueRaw = kv[2] ?? "";
+    if (!valueRaw.trim()) {
+      output[key] = [];
+      activeArrayKey = key;
+      continue;
+    }
+
+    output[key] = parsePrimitiveFrontmatterValue(valueRaw);
+    activeArrayKey = null;
+  }
+
+  return output;
+};
+
+const toStringArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const normalizeDependencyId = (value: string): string => {
+  const raw = value.trim();
+  if (raw.startsWith("module:")) {
+    return raw.slice("module:".length).trim();
+  }
+  return raw;
+};
+
+const validateContextFrontmatter = async (contentBase: string): Promise<{ warnings: string[]; hasAny: boolean }> => {
+  const warnings: string[] = [];
+  const moduleDirs = ["modules", "contexts"];
+  const knownModuleIds = new Set<string>();
+  const dependenciesByModule = new Map<string, string[]>();
+  let hasAny = false;
+
+  for (const dirName of moduleDirs) {
+    const dirPath = join(contentBase, dirName);
+    let files: string[];
+    try {
+      files = await readdir(dirPath);
+    } catch {
+      continue;
+    }
+
+    for (const file of files) {
+      if (!file.endsWith(".md")) continue;
+      hasAny = true;
+      const filePath = join(dirPath, file);
+
+      let raw: string;
+      try {
+        raw = await readFile(filePath, "utf8");
+      } catch (err) {
+        warnings.push(`Failed to read ${dirName}/${file}: ${err instanceof Error ? err.message : String(err)}`);
+        continue;
+      }
+
+      const { frontmatter, body } = splitFrontmatter(raw);
+      const parsed = parseFrontmatterObject(frontmatter);
+      const moduleId =
+        (typeof parsed.id === "string" && parsed.id.trim()) ||
+        file.replace(/\.md$/, "");
+
+      if (!body.trim()) {
+        warnings.push(`${dirName}/${file}: empty body`);
+      }
+
+      knownModuleIds.add(moduleId);
+
+      const dependencyValues = toStringArray(parsed.dependsOn ?? parsed.depends ?? parsed.deps);
+      const normalizedDeps: string[] = [];
+      for (const dep of dependencyValues) {
+        if (!MODULE_DEPENDENCY_PATTERN.test(dep)) {
+          warnings.push(`${dirName}/${file}: invalid dependsOn entry "${dep}"`);
+          continue;
+        }
+        const depId = normalizeDependencyId(dep);
+        if (depId) normalizedDeps.push(depId);
+      }
+      dependenciesByModule.set(moduleId, normalizedDeps);
+
+      const refValues = toStringArray(parsed.references ?? parsed.refs);
+      for (const ref of refValues) {
+        if (!MACHINE_REFERENCE_PATTERN.test(ref)) {
+          warnings.push(`${dirName}/${file}: invalid references entry "${ref}"`);
+        }
+      }
+
+      const provideValues = toStringArray(parsed.provides);
+      for (const ref of provideValues) {
+        if (!MACHINE_REFERENCE_PATTERN.test(ref)) {
+          warnings.push(`${dirName}/${file}: invalid provides entry "${ref}"`);
+        }
+      }
+    }
+  }
+
+  for (const [moduleId, dependencies] of dependenciesByModule.entries()) {
+    for (const depId of dependencies) {
+      if (!knownModuleIds.has(depId)) {
+        warnings.push(`module "${moduleId}": dependsOn references missing module "${depId}"`);
+      }
+    }
+  }
+
+  return { warnings, hasAny };
+};
 
 const command = process.argv[2];
 const restArgs = process.argv.slice(3);
@@ -79,9 +267,13 @@ try {
     }
 
     case "validate-module": {
-      const target = restArgs[0];
+      const strictFrontmatter = restArgs.includes("--strict") || restArgs.includes("--strict-frontmatter");
+      const args = restArgs.filter((arg) => arg !== "--strict" && arg !== "--strict-frontmatter");
+      const target = args[0];
       if (!target) {
-        process.stdout.write("Usage: od validate-module <path-to-manifest.json | module-dir>\n");
+        process.stdout.write(
+          "Usage: od validate-module <path-to-manifest.json | module-dir> [--strict-frontmatter]\n"
+        );
         process.exit(1);
       }
 
@@ -91,8 +283,18 @@ try {
         ? targetPath
         : join(targetPath, "manifest.json");
       const moduleDir = dirname(manifestPath);
+      const contentBase = await (async () => {
+        const contentPath = join(moduleDir, "content");
+        try {
+          await access(contentPath);
+          return contentPath;
+        } catch {
+          return moduleDir;
+        }
+      })();
 
       const errors: string[] = [];
+      const warnings: string[] = [];
       let hasAny = false;
 
       // manifest.json (required)
@@ -107,7 +309,7 @@ try {
       }
 
       // classes.json (optional)
-      const classesPath = join(moduleDir, "classes.json");
+      const classesPath = join(contentBase, "classes.json");
       try {
         await access(classesPath);
         const content = await readFile(classesPath, "utf8");
@@ -121,7 +323,7 @@ try {
       }
 
       // dm-config.json (optional)
-      const dmConfigPath = join(moduleDir, "dm-config.json");
+      const dmConfigPath = join(contentBase, "dm-config.json");
       try {
         await access(dmConfigPath);
         const content = await readFile(dmConfigPath, "utf8");
@@ -135,7 +337,7 @@ try {
       }
 
       // initial-state.json (optional)
-      const initialStatePath = join(moduleDir, "initial-state.json");
+      const initialStatePath = join(contentBase, "initial-state.json");
       try {
         await access(initialStatePath);
         const content = await readFile(initialStatePath, "utf8");
@@ -145,6 +347,20 @@ try {
       } catch (err: unknown) {
         if (!(err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT")) {
           errors.push(`initial-state.json: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+
+      const frontmatterValidation = await validateContextFrontmatter(contentBase);
+      if (frontmatterValidation.hasAny) {
+        process.stdout.write("✓ context modules frontmatter\n");
+        hasAny = true;
+      }
+
+      if (frontmatterValidation.warnings.length > 0) {
+        if (strictFrontmatter) {
+          errors.push(...frontmatterValidation.warnings.map((warning) => `frontmatter: ${warning}`));
+        } else {
+          warnings.push(...frontmatterValidation.warnings);
         }
       }
 
@@ -159,6 +375,13 @@ try {
           process.stderr.write(`  ✗ ${err}\n`);
         }
         process.exit(1);
+      }
+
+      if (warnings.length > 0) {
+        process.stdout.write("\nValidation warnings:\n");
+        for (const warning of warnings) {
+          process.stdout.write(`  ! ${warning}\n`);
+        }
       }
 
       process.stdout.write(`\nAll files valid.\n`);

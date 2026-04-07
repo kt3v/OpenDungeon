@@ -17,6 +17,7 @@ The reference implementation for OpenDungeon. This module demonstrates **TypeScr
 - **Cross-session state** — loot survives across sessions when the player extracts successfully
 - **Mechanics-first gameplay actions** — gameplay actions (`extract`, `camp`, `revive`) live in TypeScript mechanics
 - **Routed markdown context modules** — DM guidance lives in `modules/*.md` and is selected per action
+- **Machine-precise module references** — frontmatter `references/dependsOn/provides` boosts routing precision without TypeScript
 - **Setting system** — structured `setting.json` + rich markdown lore in `lore/`
 - **Resource indicators** — HP, gold, inventory, location mapped to UI via `indicators/*.json`
 

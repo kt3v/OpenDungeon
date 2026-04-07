@@ -7,6 +7,16 @@ triggers:
   - go
   - travel
   - location
+dependsOn:
+  - module:exploration
+references:
+  - character:location
+  - world:location
+provides:
+  - world:location
+  - character:location
+when:
+  - navigation
 ---
 
 ## Player Location Rules

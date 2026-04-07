@@ -19,6 +19,9 @@ import {
   type CharacterClassEntry
 } from "@opendungeon/shared";
 
+const MODULE_DEPENDENCY_PATTERN = /^(?:module:)?[A-Za-z0-9_.-]+$/;
+const MACHINE_REFERENCE_PATTERN = /^(world|character|resource|module):[A-Za-z0-9_.-]+$/;
+
 const parsePrimitiveFrontmatterValue = (value: string): unknown => {
   const raw = value.trim();
   if (!raw) return "";
@@ -115,6 +118,68 @@ const toStringArray = (value: unknown): string[] => {
   return [];
 };
 
+const dedupeStrings = (values: string[]): string[] => Array.from(new Set(values));
+
+const normalizeModuleDependency = (value: string): string | null => {
+  const raw = value.trim();
+  if (!raw || !MODULE_DEPENDENCY_PATTERN.test(raw)) {
+    return null;
+  }
+
+  if (raw.startsWith("module:")) {
+    const id = raw.slice("module:".length).trim();
+    return id ? `module:${id}` : null;
+  }
+
+  return raw;
+};
+
+const normalizeMachineReference = (value: string): string | null => {
+  const raw = value.trim();
+  if (!raw || !MACHINE_REFERENCE_PATTERN.test(raw)) {
+    return null;
+  }
+  return raw;
+};
+
+const parseDependencies = (value: unknown, file: string): string[] => {
+  const rawValues = toStringArray(value);
+  const normalized: string[] = [];
+
+  for (const item of rawValues) {
+    const parsed = normalizeModuleDependency(item);
+    if (!parsed) {
+      console.warn(
+        `[content-sdk] Ignoring invalid dependsOn entry "${item}" in context module "${file}". ` +
+          `Use "module:<id>" or plain module id.`
+      );
+      continue;
+    }
+    normalized.push(parsed);
+  }
+
+  return dedupeStrings(normalized);
+};
+
+const parseMachineReferences = (value: unknown, file: string, fieldName: string): string[] => {
+  const rawValues = toStringArray(value);
+  const normalized: string[] = [];
+
+  for (const item of rawValues) {
+    const parsed = normalizeMachineReference(item);
+    if (!parsed) {
+      console.warn(
+        `[content-sdk] Ignoring invalid ${fieldName} entry "${item}" in context module "${file}". ` +
+          `Use one of: world:, character:, resource:, module:.`
+      );
+      continue;
+    }
+    normalized.push(parsed);
+  }
+
+  return dedupeStrings(normalized);
+};
+
 /**
  * Synchronously load all `*.md` context modules from a directory.
  *
@@ -127,6 +192,15 @@ const toStringArray = (value: unknown): string[] => {
  * triggers:
  *   - buy
  *   - sell
+ * dependsOn:
+ *   - module:economy-core
+ * references:
+ *   - world:merchant.reputation
+ *   - module:economy-core
+ * provides:
+ *   - world:lastDealOutcome
+ * when:
+ *   - in_town
  * ---
  *
  * If no frontmatter id is provided, filename (without extension) is used.
@@ -178,6 +252,28 @@ export const loadContextModulesDirSync = (dirPath: string): DungeonMasterContext
     }
     if (typeof parsed.alwaysInclude === "boolean") {
       module.alwaysInclude = parsed.alwaysInclude;
+    }
+
+    const dependsValue = parsed.dependsOn ?? parsed.depends ?? parsed.deps;
+    const dependencies = parseDependencies(dependsValue, file);
+    if (dependencies.length > 0) {
+      module.dependsOn = dependencies;
+    }
+
+    const referencesValue = parsed.references ?? parsed.refs;
+    const references = parseMachineReferences(referencesValue, file, "references");
+    if (references.length > 0) {
+      module.references = references;
+    }
+
+    const provides = parseMachineReferences(parsed.provides, file, "provides");
+    if (provides.length > 0) {
+      module.provides = provides;
+    }
+
+    const whenTags = dedupeStrings(toStringArray(parsed.when));
+    if (whenTags.length > 0) {
+      module.when = whenTags;
     }
 
     results.push(module);

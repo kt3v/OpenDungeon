@@ -416,7 +416,8 @@ export class EngineRuntime {
    * 1. Setting / world bible (if defined)
    * 2. Module base prompt (promptTemplate or systemPrompt)
    * 3. Routed markdown context modules
-   * 4. Player language preference instruction
+   * 4. Active machine references extracted from routed modules
+   * 5. Player language preference instruction
    */
   private async buildSystemPrompt(
     worldState: Record<string, unknown>,
@@ -452,7 +453,10 @@ export class EngineRuntime {
         ].join("\n\n")
       : "";
 
-    // Section 4: Language instruction
+    // Section 4: Machine references from active modules
+    const activeReferencesSection = this.buildActiveReferencesSection(routedModules);
+
+    // Section 5: Language instruction
     let languageSection = "";
     if (playerLanguage) {
       languageSection = `\n\n## Language\nYou MUST respond in ${playerLanguage} language. This is the player's preferred language, regardless of what language they used in their action.`;
@@ -465,6 +469,7 @@ export class EngineRuntime {
     if (settingSection) parts.push(settingSection);
     parts.push(base + languageSection);
     if (modulesSection) parts.push(modulesSection);
+    if (activeReferencesSection) parts.push(activeReferencesSection);
 
     return parts.join("\n\n");
   }
@@ -485,6 +490,45 @@ export class EngineRuntime {
     });
 
     return selection.selectedModules;
+  }
+
+  private buildActiveReferencesSection(modules: RouterContextModule[]): string {
+    const lines: string[] = [];
+
+    for (const module of modules) {
+      const refs = module.references?.slice(0, 8) ?? [];
+      const provides = module.provides?.slice(0, 6) ?? [];
+      const chunks: string[] = [];
+
+      if (refs.length > 0) {
+        chunks.push(`references: ${refs.join(", ")}`);
+      }
+
+      if (provides.length > 0) {
+        chunks.push(`provides: ${provides.join(", ")}`);
+      }
+
+      if (chunks.length > 0) {
+        lines.push(`- ${module.id}: ${chunks.join(" | ")}`);
+      }
+    }
+
+    if (lines.length === 0) {
+      return "";
+    }
+
+    const header = "## Active References";
+    const maxChars = 900;
+    const selected: string[] = [];
+    let consumed = 0;
+
+    for (const line of lines) {
+      if (consumed + line.length > maxChars) break;
+      selected.push(line);
+      consumed += line.length;
+    }
+
+    return selected.length > 0 ? [header, ...selected].join("\n") : "";
   }
 
   private isContextRouterEnabled(): boolean {
@@ -538,6 +582,30 @@ export class EngineRuntime {
           module.triggers = obj.triggers
             .filter((trigger): trigger is string => typeof trigger === "string")
             .map((trigger) => trigger.trim())
+            .filter(Boolean);
+        }
+        if (Array.isArray(obj.dependsOn)) {
+          module.dependsOn = obj.dependsOn
+            .filter((dep): dep is string => typeof dep === "string")
+            .map((dep) => dep.trim())
+            .filter(Boolean);
+        }
+        if (Array.isArray(obj.references)) {
+          module.references = obj.references
+            .filter((reference): reference is string => typeof reference === "string")
+            .map((reference) => reference.trim())
+            .filter(Boolean);
+        }
+        if (Array.isArray(obj.provides)) {
+          module.provides = obj.provides
+            .filter((provide): provide is string => typeof provide === "string")
+            .map((provide) => provide.trim())
+            .filter(Boolean);
+        }
+        if (Array.isArray(obj.when)) {
+          module.when = obj.when
+            .filter((tag): tag is string => typeof tag === "string")
+            .map((tag) => tag.trim())
             .filter(Boolean);
         }
         if (typeof obj.file === "string") module.file = obj.file;

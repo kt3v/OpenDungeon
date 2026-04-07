@@ -164,6 +164,34 @@ interface ActionResult {
 }
 ```
 
+### Context Module Frontmatter (`modules/*.md`)
+
+`loadContextModulesDirSync()` supports optional YAML-like frontmatter:
+
+```markdown
+---
+id: trading
+priority: 80
+alwaysInclude: false
+triggers:
+  - buy
+  - sell
+dependsOn:
+  - module:economy-core
+references:
+  - world:merchant.reputation
+  - character:gold
+provides:
+  - world:lastTradeOutcome
+when:
+  - in_town
+---
+```
+
+- `dependsOn` supports plain ids (`trading`) and `module:<id>`.
+- `references` / `provides` support `world:`, `character:`, `resource:`, `module:`.
+- Invalid machine refs are ignored with warnings (no hard crash).
+
 ---
 
 ## Exports
