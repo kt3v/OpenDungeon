@@ -318,8 +318,12 @@ export default function HomePage() {
   };
 
   const pollActionResult = async (sessionId: string, actionId: string): Promise<{ event?: SessionEvent } | null> => {
-    for (let i = 0; i < 120; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+    // Poll for up to 10 minutes (600 * 1000ms) to support slow providers like local Ollama
+    const maxAttempts = 600;
+    const pollIntervalMs = 1000;
+
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
       try {
         const data = await request(`/sessions/${sessionId}/actions/${actionId}`, {
           headers: authHeaders,
@@ -328,13 +332,15 @@ export default function HomePage() {
           return { event: data.result?.event };
         }
         if (data.status === "failed") {
-          return null;
+          throw new Error(data.error ?? "Action failed");
         }
-      } catch {
-        return null;
+      } catch (err) {
+        // Re-throw actual errors so caller can handle them
+        throw err instanceof Error ? err : new Error("Poll failed");
       }
     }
-    return null;
+    // Timeout after max attempts
+    throw new Error("POLL_TIMEOUT: Action is taking too long. The response may arrive shortly; try refreshing the page.");
   };
 
   const submitAction = async (prompt = actionText): Promise<void> => {
@@ -357,8 +363,34 @@ export default function HomePage() {
       // Still reload to get updated worldState and suggested actions
       await loadSessionState(selectedSessionId);
       await loadSuggestedActions(selectedSessionId);
-    } catch {
-      // silent
+    } catch (error) {
+      // If polling timed out, show a message but keep UI responsive
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("POLL_TIMEOUT")) {
+        // Add a system message explaining the delay
+        setEvents(prev => [...prev, {
+          id: `timeout-${Date.now()}`,
+          playerId: "system",
+          actionText: cleanPrompt,
+          message: "⏳ The DM is taking longer than usual. The response will appear when ready.",
+          createdAt: new Date().toISOString(),
+        }]);
+        // Background poll once more after a delay to catch the result
+        setTimeout(async () => {
+          try {
+            const data = await request(`/sessions/${selectedSessionId}/state`, { headers: authHeaders });
+            if (data.events?.length > events.length) {
+              setEvents(data.events);
+              setSessionSummary(typeof data.session?.summary === "string" ? data.session.summary : "");
+              setCharacterState(data.characterState ?? {});
+              setWorldState(data.worldState ?? {});
+              await loadSuggestedActions(selectedSessionId);
+            }
+          } catch {
+            // ignore background refresh errors
+          }
+        }, 30000); // Try again in 30 seconds
+      }
     } finally {
       setIsActionPending(false);
     }
