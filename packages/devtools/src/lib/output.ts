@@ -62,7 +62,8 @@ export function printHelp(): void {
   println();
   println("  " + color("od setup", c.bold) + " [web|game]             First-time setup (Docker, ports, database)");
   println("  " + color("od start", c.bold) + " [full|gateway|web]   Start services in the background");
-  println("  " + color("od stop", c.bold) + "  [full|gateway|web]   Stop background services");
+  println("  " + color("od drain", c.bold) + "                      Graceful shutdown prep: block new actions, wait for in-flight to finish");
+  println("  " + color("od stop", c.bold) + "  [full|gateway|web]   Stop background services (run after od drain)");
   println("  " + color("od status", c.bold) + "                     Show what is running and where");
   println("  " + color("od logs", c.bold) + "  [gateway|web] [-f]   View service logs (use -f to follow live)");
   println("  " + color("od realtime", c.bold) + "                   Follow gateway logs in realtime mode");

@@ -77,6 +77,7 @@ export default function HomePage() {
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [sessionSummary, setSessionSummary] = useState("");
   const [isActionPending, setIsActionPending] = useState(false);
+  const [serverStatus, setServerStatus] = useState<string | null>(null);
   const [resourceSchemas, setResourceSchemas] = useState<ResourceSchema[]>([]);
   const [characterState, setCharacterState] = useState<Record<string, unknown>>({});
   const [worldState, setWorldState] = useState<Record<string, unknown>>({});
@@ -347,6 +348,7 @@ export default function HomePage() {
     if (!cleanPrompt) return;
     setActionText("");
     setIsActionPending(true);
+    setServerStatus(null);
     try {
       const { actionId } = await request(`/sessions/${selectedSessionId}/actions`, {
         method: "POST",
@@ -362,7 +364,11 @@ export default function HomePage() {
       await loadSuggestedActions(selectedSessionId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("POLL_TIMEOUT")) {
+      if (message === "SERVER_DRAINING") {
+        // Server is draining — restore text so player can retry, show a status banner
+        setActionText(cleanPrompt);
+        setServerStatus("⏸️ The server is preparing for a brief restart. Please wait a moment and try again.");
+      } else if (message.includes("POLL_TIMEOUT")) {
         setEvents(prev => [...prev, {
           id: `timeout-${Date.now()}`,
           playerId: "system",
@@ -1131,6 +1137,7 @@ export default function HomePage() {
           currentMessage={events.at(-1)?.message ?? ""}
           sessionSummary={sessionSummary}
           isActionPending={isActionPending}
+          serverStatus={serverStatus}
           setActionText={setActionText}
           onSendAction={(prompt) => void submitAction(prompt)}
           onBack={() => setActiveScreen("session")}

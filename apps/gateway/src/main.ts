@@ -468,6 +468,41 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   let processor = new ActionProcessor(runtimeCtx.runtime, worldStore, persistence.prisma, processorCallbacks, architect);
 
   // ---------------------------------------------------------------------------
+  // Graceful drain state
+  // ---------------------------------------------------------------------------
+
+  /**
+   * When true, the server rejects new action submissions with 503 SERVER_DRAINING.
+   * In-flight actions continue until completion. Once activeCount reaches 0,
+   * drainSettledAt is set and the server is safe to stop.
+   */
+  let draining = false;
+  let drainSettledAt: string | null = null;
+
+  const beginDrain = (): void => {
+    if (draining) return;
+    draining = true;
+    drainSettledAt = null;
+    console.log("[drain] Entering drain mode — new action submissions are now blocked");
+    // 5-minute ceiling: if LLM hangs longer than that, something is very wrong
+    processor.drain(5 * 60_000).then((ok) => {
+      drainSettledAt = new Date().toISOString();
+      console.log(
+        ok
+          ? "[drain] All in-flight actions completed — server is safe to stop"
+          : "[drain] Drain timed out after 5 minutes — some actions may not have completed"
+      );
+    });
+  };
+
+  // SIGUSR2 from `od drain` triggers graceful drain mode.
+  // (SIGUSR1 is reserved by Node.js for the inspector.)
+  process.on("SIGUSR2", () => {
+    console.log("[drain] SIGUSR2 received");
+    beginDrain();
+  });
+
+  // ---------------------------------------------------------------------------
   // Module hot-reload
   // ---------------------------------------------------------------------------
 
@@ -478,6 +513,9 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       return;
     }
     reloading = true;
+    // Reset drain state on reload so the server accepts actions again
+    draining = false;
+    drainSettledAt = null;
     try {
       const newCtx = await createRuntimeContext();
       const drained = await processor.drain(30_000);
@@ -496,15 +534,26 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     if (persistence.prisma) await persistence.prisma.$disconnect();
   });
 
+  // Graceful SIGTERM: close Fastify cleanly so the onClose hook runs.
+  // `od stop` sends SIGTERM; after `od drain` confirms zero in-flight actions
+  // this completes almost instantly.
+  process.on("SIGTERM", () => {
+    console.log("[shutdown] SIGTERM received — closing gracefully");
+    app.close().then(() => process.exit(0)).catch(() => process.exit(1));
+  });
+
   // ---------------------------------------------------------------------------
   // Routes — info
   // ---------------------------------------------------------------------------
 
   app.get("/health", async () => ({
-    status: "ok",
+    status: draining ? "draining" : "ok",
     service: "gateway",
     module: runtimeCtx.runtime.getManifest().name,
-    modulePath: runtimeCtx.loadedModule.modulePath
+    modulePath: runtimeCtx.loadedModule.modulePath,
+    drain: draining
+      ? { active: true, activeCount: processor.activeCount, ready: drainSettledAt !== null }
+      : undefined
   }));
 
   app.get("/llm/provider", async () => ({
@@ -539,6 +588,41 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     void reply.code(202).send({ status: "reload_initiated" });
     void reloadModule();
   });
+
+  /**
+   * Initiate graceful drain via HTTP (alternative to SIGUSR2 signal).
+   * Requires ADMIN_TOKEN.
+   */
+  app.post("/admin/drain", async (request, reply) => {
+    const adminToken = process.env.ADMIN_TOKEN;
+    if (!adminToken) {
+      return reply.code(403).send({ error: "DRAIN_DISABLED", message: "ADMIN_TOKEN not configured" });
+    }
+    const authHeader = request.headers.authorization ?? "";
+    const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
+    if (provided !== adminToken) {
+      return reply.code(401).send({ error: "UNAUTHORIZED" });
+    }
+    beginDrain();
+    return reply.code(202).send({
+      status: drainSettledAt ? "ready" : "draining",
+      activeCount: processor.activeCount,
+      message: drainSettledAt
+        ? "All actions completed — server is safe to stop"
+        : "Drain initiated — new action submissions are blocked"
+    });
+  });
+
+  /**
+   * Poll drain status. Intentionally unauthenticated — exposes only operational
+   * counters, no sensitive data. `od drain` polls this to know when it's safe to stop.
+   */
+  app.get("/admin/drain/status", async () => ({
+    draining,
+    activeCount: processor.activeCount,
+    ready: draining && drainSettledAt !== null,
+    settledAt: drainSettledAt
+  }));
 
   // ---------------------------------------------------------------------------
   // Routes — auth
@@ -996,6 +1080,14 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     if (!session) return reply.code(404).send({ error: "SESSION_NOT_FOUND" });
     if (session.status !== "active") return reply.code(409).send({ error: "SESSION_NOT_ACTIVE" });
     if (session.userId !== userId) return reply.code(403).send({ error: "FORBIDDEN" });
+
+    // Reject new submissions during graceful drain so in-flight actions can finish
+    if (draining) {
+      return reply.code(503).send({
+        error: "SERVER_DRAINING",
+        message: "The server is preparing to restart. Please wait a moment and try again."
+      });
+    }
 
     const campaign = db.campaignsById.get(session.campaignId);
     if (!campaign) return reply.code(404).send({ error: "CAMPAIGN_NOT_FOUND" });

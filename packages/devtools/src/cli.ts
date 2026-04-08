@@ -18,6 +18,7 @@ import { runConfigure } from "./commands/configure.js";
 import { runReset } from "./commands/reset.js";
 import { runCreateModule } from "./commands/create-module.js";
 import { runDoctor } from "./commands/doctor.js";
+import { runDrain } from "./commands/drain.js";
 
 const MODULE_DEPENDENCY_PATTERN = /^(?:module:)?[A-Za-z0-9_.-]+$/;
 const MACHINE_REFERENCE_PATTERN = /^(world|character|resource|module):[A-Za-z0-9_.-]+$/;
@@ -441,6 +442,10 @@ try {
       process.stdout.write(`\nAll files valid.\n`);
       break;
     }
+
+    case "drain":
+      await runDrain(restArgs);
+      break;
 
     case "doctor":
       await runDoctor(restArgs);

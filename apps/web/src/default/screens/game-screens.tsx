@@ -486,6 +486,7 @@ export const ActionsScreen: FC<{
   currentMessage: string;
   sessionSummary: string;
   isActionPending: boolean;
+  serverStatus?: string | null;
   setActionText: (v: string) => void;
   onSendAction: (prompt: string) => void;
   onBack: () => void;
@@ -500,6 +501,7 @@ export const ActionsScreen: FC<{
   currentMessage,
   sessionSummary,
   isActionPending,
+  serverStatus,
   setActionText,
   onSendAction,
   onBack,
@@ -586,6 +588,21 @@ export const ActionsScreen: FC<{
                 {action.label}
               </button>
             ))}
+          </div>
+        )}
+
+        {serverStatus && (
+          <div style={{
+            padding: "8px 14px",
+            margin: "0 0 6px",
+            borderRadius: "var(--radius-sm)",
+            background: "rgba(180, 120, 0, 0.12)",
+            border: "1px solid rgba(220, 160, 0, 0.3)",
+            color: "#c8a020",
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}>
+            {serverStatus}
           </div>
         )}
 

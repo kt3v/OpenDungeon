@@ -111,7 +111,12 @@ export class ActionProcessor {
   private readonly queue = new Map<string, QueueEntry>();
 
   /** Count of actions currently being processed (for graceful drain on reload). */
-  private activeCount = 0;
+  private _activeCount = 0;
+
+  /** Publicly readable count of in-flight actions (used by drain status endpoint). */
+  get activeCount(): number {
+    return this._activeCount;
+  }
 
   /**
    * Per-campaign commit chain.
@@ -202,7 +207,7 @@ export class ActionProcessor {
    */
   async drain(timeoutMs = 30_000): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
-    while (this.activeCount > 0) {
+    while (this._activeCount > 0) {
       if (Date.now() > deadline) return false;
       await new Promise<void>((r) => setTimeout(r, 100));
     }
@@ -224,7 +229,7 @@ export class ActionProcessor {
     if (!entry) return;
 
     entry.status = "processing";
-    this.activeCount++;
+    this._activeCount++;
 
     try {
       const session = this.callbacks.getSession(sessionId);
@@ -497,7 +502,7 @@ export class ActionProcessor {
           .catch(() => {});
       }
     } finally {
-      this.activeCount--;
+      this._activeCount--;
     }
   }
 
