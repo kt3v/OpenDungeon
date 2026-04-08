@@ -494,6 +494,7 @@ export default function HomePage() {
 
         html, body {
           height: 100%;
+          margin: 0;
           background: var(--bg-deep);
           color: var(--text);
           font-family: 'Inter', system-ui, sans-serif;
@@ -648,10 +649,12 @@ export default function HomePage() {
 
         /* Unified Screen Container */
         .screen-container {
-          min-height: 100vh;
+          height: 100vh;
+          height: 100dvh;
           width: 100%;
           display: flex;
           flex-direction: column;
+          overflow: hidden;
         }
         .screen-content {
           width: 100%;
@@ -710,6 +713,11 @@ export default function HomePage() {
           font-size: 12px;
           letter-spacing: 0.15em;
           text-transform: uppercase;
+        }
+        .auth-subtitle-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
         }
 
         .auth-welcome {
@@ -785,6 +793,17 @@ export default function HomePage() {
           letter-spacing: -0.02em;
         }
         .screen-header-left { display: flex; align-items: center; gap: 12px; }
+        .character-header {
+          display: flex;
+          align-items: baseline;
+          gap: 10px;
+          min-width: 0;
+        }
+        .character-meta {
+          font-size: 13px;
+          color: var(--text-dim);
+          white-space: nowrap;
+        }
         .back-btn { color: var(--text-faint); border-color: transparent; padding: 6px 10px; font-size: 13px; }
         .back-btn:hover { color: var(--text-dim) !important; border-color: var(--border) !important; background: rgba(255,255,255,0.04) !important; }
         .actions-topbar { padding-bottom: 4px; }
@@ -908,7 +927,29 @@ export default function HomePage() {
           box-shadow: none !important;
           outline: none !important;
         }
-        .actions-scroll-area { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+        .actions-scroll-area {
+          flex: 1;
+          min-height: 0;
+          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(64, 128, 255, 0.7) transparent;
+        }
+        .actions-scroll-area::-webkit-scrollbar { width: 10px; }
+        .actions-scroll-area::-webkit-scrollbar-track { background: transparent; }
+        .actions-scroll-area::-webkit-scrollbar-thumb {
+          background: linear-gradient(180deg, rgba(64, 128, 255, 0.9), rgba(26, 86, 232, 0.75));
+          border-radius: 999px;
+          border: 2px solid transparent;
+          background-clip: padding-box;
+        }
+        .actions-scroll-area::-webkit-scrollbar-thumb:hover {
+          background: linear-gradient(180deg, rgba(90, 150, 255, 0.95), rgba(40, 105, 245, 0.85));
+          border: 2px solid transparent;
+          background-clip: padding-box;
+        }
 
         .session-badge {
           font-size: 11px;
@@ -927,10 +968,13 @@ export default function HomePage() {
           max-width: 680px;
           margin: 0 auto;
           padding: 24px;
+          box-sizing: border-box;
           display: flex;
           flex-direction: column;
           gap: 16px;
-          min-height: calc(100vh - 40px);
+          flex: 1;
+          min-height: 0;
+          overflow: hidden;
         }
 
         .chronicle-wrap { display: flex; justify-content: center; }
@@ -940,6 +984,41 @@ export default function HomePage() {
           border: none;
           padding: 0;
         }
+        .story-tabs {
+          position: sticky;
+          top: 0;
+          z-index: 2;
+          display: flex;
+          gap: 8px;
+          padding: 4px;
+          width: fit-content;
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          background: rgba(6, 8, 14, 0.75);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+        }
+        .story-tab {
+          padding: 6px 14px;
+          border: none;
+          border-radius: 999px;
+          background: transparent;
+          color: var(--text-dim);
+          font-family: inherit;
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: color 0.15s, background 0.15s;
+        }
+        .story-tab:hover:not(:disabled) { color: var(--text); }
+        .story-tab--active {
+          background: rgba(26, 86, 232, 0.22);
+          color: var(--primary-hi);
+        }
+        .story-tab:disabled { opacity: 0.45; cursor: not-allowed; }
+        .story-panel { display: flex; flex-direction: column; gap: 16px; }
         .chronicle-label {
           font-size: 11px;
           font-weight: 600;
@@ -963,29 +1042,21 @@ export default function HomePage() {
           padding-top: 12px;
         }
 
-        .history-details {
-          background: var(--bg-panel);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-md);
-          overflow: hidden;
-        }
-        .history-summary { padding: 12px 18px; cursor: pointer; font-size: 13px; color: var(--text-dim); list-style: none; user-select: none; }
-        .history-summary::-webkit-details-marker { display: none; }
-        .history-summary::before { content: "▸ "; color: var(--primary); }
-        details[open] .history-summary::before { content: "▾ "; }
         .history-list {
-          max-height: 320px;
-          overflow-y: auto;
-          padding: 0 18px 14px;
+          padding: 2px 0 8px;
           display: flex;
           flex-direction: column;
           gap: 12px;
-          scrollbar-width: thin;
-          scrollbar-color: var(--border) var(--bg-card);
         }
+        .history-list--tab { min-height: 120px; }
         .history-item { border-top: 1px solid var(--border); padding-top: 10px; }
         .history-action { font-size: 12px; color: var(--primary); font-weight: 500; }
         .history-msg { margin-top: 4px; font-size: 14px; color: var(--text-dim); line-height: 1.5; }
+        .history-empty {
+          color: var(--text-faint);
+          font-size: 14px;
+          padding: 8px 0;
+        }
 
         .markdown-content p { margin: 0 0 0.8em 0; }
         .markdown-content p:last-child { margin-bottom: 0; }

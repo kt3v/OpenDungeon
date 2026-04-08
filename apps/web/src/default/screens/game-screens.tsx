@@ -95,21 +95,21 @@ export const AuthScreen: FC<{
   onRegister,
 }) => (
   <div className="auth-root">
-    <div className="auth-topbar">
-      <a
-        href="https://github.com/kt3v/OpenDungeon"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="auth-topbar-link"
-      >
-        GitHub
-      </a>
-    </div>
     <div className="auth-card">
       <div className="auth-brand">
         <img src="/logo.png" alt="OpenDungeon" className="auth-logo" />
         <h1 className="auth-title">OpenDungeon</h1>
-        <div className="auth-subtitle">AI-Powered RPG Engine</div>
+        <div className="auth-subtitle-row">
+          <div className="auth-subtitle">AI-Powered RPG Engine</div>
+          <a
+            href="https://github.com/kt3v/OpenDungeon"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="auth-topbar-link"
+          >
+            GitHub
+          </a>
+        </div>
       </div>
 
       <div className="auth-welcome">
@@ -451,11 +451,9 @@ export const SessionScreen: FC<{
             {selectedSessionId ? (
               <>
                 <span className="selection-name">{sessions.find((s) => s.id === selectedSessionId)?.character.name}</span>
-                <span className="selection-chars">
-                  {sessions.find((s) => s.id === selectedSessionId)?.status === "active"
-                    ? "Ready to play"
-                    : "Session ended"}
-                </span>
+                {sessions.find((s) => s.id === selectedSessionId)?.status !== "active" && (
+                  <span className="selection-chars">Session ended</span>
+                )}
               </>
             ) : (
               <span className="selection-name">No character selected</span>
@@ -510,6 +508,15 @@ export const ActionsScreen: FC<{
   characterState,
   worldState,
 }) => {
+  const [activeTab, setActiveTab] = useState<"scene" | "history">("scene");
+  const hasHistory = events.length > 1;
+
+  useEffect(() => {
+    if (!hasHistory && activeTab === "history") {
+      setActiveTab("scene");
+    }
+  }, [activeTab, hasHistory]);
+
   const getResourceValue = (schema: ResourceSchema): unknown => {
     const source = schema.source === "characterState" ? characterState : worldState;
     return source[schema.stateKey] ?? schema.defaultValue;
@@ -520,9 +527,9 @@ export const ActionsScreen: FC<{
       <AppHeader />
       <div className="actions-root">
         <ScreenHeader onBack={onBack}>
-          <div>
-            <div style={{ fontWeight: 500 }}>{sessionCharacter.name}</div>
-            <div style={{ fontSize: 13, color: "var(--text-dim)" }}>Level {sessionCharacter.level} {sessionCharacter.className}</div>
+          <div className="character-header">
+            <h2 className="screen-title">{sessionCharacter.name}</h2>
+            <span className="character-meta">Level {sessionCharacter.level} {sessionCharacter.className}</span>
           </div>
         </ScreenHeader>
 
@@ -541,39 +548,66 @@ export const ActionsScreen: FC<{
         )}
 
         <div className="actions-scroll-area">
-          <div className="chronicle-wrap">
-            <div className="chronicle-card">
-              <div className="chronicle-label">The Story So Far</div>
-              {currentMessage ? (
-                <div className="chronicle-text markdown-content">
-                  <ReactMarkdown>{currentMessage}</ReactMarkdown>
-                </div>
-              ) : (
-                <div className="chronicle-text" style={{ color: "var(--text-dim)" }}>Your adventure begins...</div>
-              )}
-              {sessionSummary && (
-                <div className="chronicle-summary">
-                  <strong>Summary:</strong> {sessionSummary}
-                </div>
-              )}
-            </div>
+          <div className="story-tabs" role="tablist" aria-label="Story tabs">
+            <button
+              className={`story-tab ${activeTab === "scene" ? "story-tab--active" : ""}`}
+              onClick={() => setActiveTab("scene")}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "scene"}
+            >
+              Scene
+            </button>
+            <button
+              className={`story-tab ${activeTab === "history" ? "story-tab--active" : ""}`}
+              onClick={() => setActiveTab("history")}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "history"}
+              disabled={!hasHistory}
+            >
+              History {hasHistory ? `(${events.length - 1})` : ""}
+            </button>
           </div>
 
-          {events.length > 1 && (
-            <details className="history-details">
-              <summary className="history-summary">Show History ({events.length} events)</summary>
-              <div className="history-list">
-                {events.slice(0, -1).reverse().map((event) => (
-                  <div key={event.id} className="history-item">
-                    <div className="history-action">▸ {event.actionText}</div>
-                    <div className="history-msg markdown-content">
-                      <ReactMarkdown>{event.message}</ReactMarkdown>
+          <div className="story-panel">
+            {activeTab === "scene" && (
+              <div className="chronicle-wrap">
+                <div className="chronicle-card">
+                  <div className="chronicle-label">The Story So Far</div>
+                  {currentMessage ? (
+                    <div className="chronicle-text markdown-content">
+                      <ReactMarkdown>{currentMessage}</ReactMarkdown>
                     </div>
-                  </div>
-                ))}
+                  ) : (
+                    <div className="chronicle-text" style={{ color: "var(--text-dim)" }}>Your adventure begins...</div>
+                  )}
+                  {sessionSummary && (
+                    <div className="chronicle-summary">
+                      <strong>Summary:</strong> {sessionSummary}
+                    </div>
+                  )}
+                </div>
               </div>
-            </details>
-          )}
+            )}
+
+            {activeTab === "history" && (
+              hasHistory ? (
+                <div className="history-list history-list--tab">
+                  {events.slice(0, -1).reverse().map((event) => (
+                    <div key={event.id} className="history-item">
+                      <div className="history-action">▸ {event.actionText}</div>
+                      <div className="history-msg markdown-content">
+                        <ReactMarkdown>{event.message}</ReactMarkdown>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="history-empty">No previous turns yet.</div>
+              )
+            )}
+          </div>
         </div>
 
         {suggestedActions.length > 0 && (
