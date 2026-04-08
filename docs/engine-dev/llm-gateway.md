@@ -6,12 +6,13 @@ OpenDungeon includes a production-ready LLM gateway with a complete set of safeg
 
 | Feature | Description |
 |---------|-------------|
-| **Rate Limiting** | Token bucket algorithm with RPM (requests per minute) and configurable window |
-| **Concurrency Limiting** | Maximum of N parallel requests via semaphore, others wait in queue |
+| **Rate Limiting** | Token bucket algorithm with RPM (requests per minute) and configurable window per provider |
+| **Round-Robin Load Balancing** | Automatically switches between primary and fallback providers when rate limits are hit |
+| **Concurrency Limiting** | Maximum of N parallel requests via semaphore, others wait in queue (per provider) |
 | **Exponential Backoff** | Automatic retry with increasing delay and jitter (+/-25%) |
 | **Circuit Breaker** | Automatic disabling on repeated errors, recovery via timeout and success threshold |
-| **Fallback Provider** | Switch to backup provider on specific error categories |
-| **Metrics** | Track latency, queue depth, error rate, circuit state, and token usage |
+| **Fallback Provider** | Alternative provider with its own RPM limits; no waiting on rate limits |
+| **Metrics** | Track latency, queue depth, error rate, circuit state, token usage, and provider distribution |
 
 ## Configuration (.env.local)
 
@@ -62,6 +63,9 @@ GATEWAY_LLM_FALLBACK_BASE_URL=https://api.anthropic.com/v1
 GATEWAY_LLM_FALLBACK_API_KEY=sk-ant-...
 GATEWAY_LLM_FALLBACK_MODEL=claude-3-haiku-20240307
 
+# Fallback rate limiting (optional - defaults to GATEWAY_LLM_RPM)
+GATEWAY_LLM_FALLBACK_RPM=60
+
 # ============================================
 # Architect (dev tools) — separate model
 # ============================================
@@ -70,21 +74,33 @@ LLM_ARCHITECT_MODEL=gpt-4o
 
 ## How It Works
 
+### Round-Robin Rate Limiting
+
+The gateway implements **round-robin with fail-over** for maximum throughput:
+
+1. **No waiting** — if primary provider's rate limit is exceeded, request immediately tries fallback
+2. **Independent counters** — each provider has its own token bucket RPM counter
+3. **Smart routing** — remembers last successful provider and tries it first on next request
+4. **Both exhausted** — only when both providers return 429, the request fails
+
 ### Rate Limiting (Token Bucket)
-The gateway uses a token bucket to smooth out requests. If the bucket is empty, the request waits for a refill (up to 30 seconds before timing out).
+
+Each provider has its own token bucket. If the bucket is empty, the gateway immediately tries the other provider (no waiting).
 
 ### Circuit Breaker States
+
 - **CLOSED**: Requests flow to the primary provider.
-- **OPEN**: Primary is failing. Requests immediately fail (503) or trigger fallback.
+- **OPEN**: Provider is failing. Requests immediately try the other provider.
 - **HALF_OPEN**: Recovery attempt. If `successThreshold` (default: 2) is met, it returns to CLOSED.
 
 ### Fallback Provider
-Fallback triggers on specific error categories defined in `LlmProviderErrorCategory`:
-- `rate-limit` — provider returned 429.
-- `network` — 5xx errors, timeouts, or fetch failures.
-- `unknown` — unexpected errors.
 
-Fallback does **NOT** trigger on `auth` (401/403) or `malformed-output` (parsing issues) by default.
+Fallback is triggered when:
+- Primary provider rate limit exceeded (429)
+- Circuit breaker is open
+- Network errors (5xx, timeouts)
+
+The fallback provider has its own independent RPM limits and concurrency controls.
 
 ## Metrics
 
@@ -95,14 +111,57 @@ The gateway tracks performance and usage. Example metrics object:
   "totalRequests": 150,
   "successfulRequests": 145,
   "failedRequests": 3,
-  "fallbackRequests": 2,
-  "rateLimitedRequests": 5,
+  "primaryRequests": 98,
+  "fallbackRequests": 47,
+  "rateLimitedPrimary": 5,
+  "rateLimitedFallback": 2,
   "queueDepth": 2,
   "averageLatencyMs": 1245,
   "circuitState": "closed",
   "currentConcurrency": 4,
   "totalInputTokens": 45200,
   "totalOutputTokens": 12800
+}
+```
+
+### Metrics Fields
+
+| Field | Description |
+|-------|-------------|
+| `totalRequests` | Total number of requests made through gateway |
+| `successfulRequests` | Number of successful responses |
+| `failedRequests` | Number of failed requests (both providers exhausted) |
+| `primaryRequests` | Requests served by primary provider |
+| `fallbackRequests` | Requests served by fallback provider |
+| `rateLimitedPrimary` | Times primary provider was rate limited |
+| `rateLimitedFallback` | Times fallback provider was rate limited |
+| `queueDepth` | Current number of requests waiting for concurrency slots |
+| `averageLatencyMs` | Average response latency in milliseconds |
+| `circuitState` | Current circuit breaker state ("closed", "open", "half-open") |
+| `currentConcurrency` | Number of requests currently being processed |
+| `totalInputTokens` | Total input tokens across all requests |
+| `totalOutputTokens` | Total output tokens across all responses |
+
+## Provider Tracking in Action Results
+
+When an action is resolved, the gateway tracks which provider was used:
+
+```typescript
+// In ActionResult (from @opendungeon/content-sdk)
+interface ActionResult {
+  message: string;
+  // ... other fields
+  llmProviderUsed?: string;  // e.g., "gateway-openai-compatible" or "gateway-anthropic-compatible"
+}
+```
+
+This is logged in the `[EVENT] ACTION_RESOLVED` log entry:
+```json
+{
+  "characterName": "Player1",
+  "action": "look around",
+  "message": "You see a dark corridor...",
+  "provider": "gateway-openai-compatible"
 }
 ```
 
@@ -136,7 +195,8 @@ import { createGatewayProvider } from "@opendungeon/providers-llm";
 const gateway = createGatewayProvider({
   primary,
   fallback,
-  fallbackOnErrors: ["rate-limit", "network"],
+  rpm: 60,
+  fallbackRpm: 120,  // Fallback can have different rate limits
   onMetrics: (m) => console.log(`Tokens: ${m.totalInputTokens} in, ${m.totalOutputTokens} out`)
 });
 ```
@@ -146,7 +206,8 @@ const gateway = createGatewayProvider({
 | | Gateway | Architect |
 |---|---------|-----------|
 | **Purpose** | Live Game Loop (DM) | Dev Tools (Chronicler, Scaffold) |
-| **Resilience** | ✅ High (Circuit, Fallback) | ❌ Low (Direct) |
-| **Rate limiting** | ✅ Yes | ❌ No |
+| **Resilience** | ✅ High (Circuit, Fallback, Round-robin) | ❌ Low (Direct) |
+| **Rate limiting** | ✅ Yes (per provider) | ❌ No |
+| **Load balancing** | ✅ Round-robin | ❌ No |
 | **Model** | `LLM_MODEL` | `LLM_ARCHITECT_MODEL` |
 | **Provider** | `GatewayLLMProvider` | `OpenAICompatibleProvider` (etc) |

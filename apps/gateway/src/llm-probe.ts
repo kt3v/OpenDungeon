@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DungeonMasterRuntime } from "@opendungeon/engine-core";
-import { classifyProviderError, getProviderRuntimeConfigFromEnv, LlmProviderError } from "@opendungeon/providers-llm";
+import { classifyProviderError, getProviderRuntimeConfigFromEnv, LlmProviderError, createProviderFromEnv } from "@opendungeon/providers-llm";
 
 const loadDotEnvLocal = (): void => {
   const candidates = [
@@ -34,7 +34,7 @@ const loadDotEnvLocal = (): void => {
 
 loadDotEnvLocal();
 
-const runtime = new DungeonMasterRuntime();
+const runtime = new DungeonMasterRuntime({ provider: createProviderFromEnv() });
 
 const run = async (): Promise<void> => {
   const config = getProviderRuntimeConfigFromEnv();

@@ -76,6 +76,12 @@ export interface ActionResult {
    * invoking any mechanic — useful for analytics and unhandled-intent detection.
    */
   handledByMechanic?: boolean;
+  /**
+   * Which LLM provider was used to generate this response.
+   * Contains provider name (e.g., "openai", "anthropic", "gateway-openai", "gateway-anthropic")
+   * or "primary"/"fallback" when using gateway round-robin.
+   */
+  llmProviderUsed?: string;
 }
 
 export interface StatePatch {

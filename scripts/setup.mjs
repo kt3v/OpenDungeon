@@ -318,6 +318,10 @@ const main = async () => {
       WEB_PORT: webPort.toString(),
       GATEWAY_PORT: gatewayPort.toString(),
       NEXT_PUBLIC_GATEWAY_URL: `http://${localIp}:${gatewayPort}`,
+      // Performance settings (preserve existing or use defaults)
+      ENABLE_ARCHIVIST: currentEnv.ENABLE_ARCHIVIST ?? exampleEnv.ENABLE_ARCHIVIST ?? "true",
+      GATEWAY_LLM_RPM: currentEnv.GATEWAY_LLM_RPM ?? exampleEnv.GATEWAY_LLM_RPM ?? "60",
+      GATEWAY_LLM_MAX_CONCURRENT: currentEnv.GATEWAY_LLM_MAX_CONCURRENT ?? exampleEnv.GATEWAY_LLM_MAX_CONCURRENT ?? "5",
     };
 
     const newEnvContent = Object.entries(config)

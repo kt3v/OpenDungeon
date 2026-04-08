@@ -19,9 +19,8 @@ import { createProviderFromEnv, type LlmProvider } from "@opendungeon/providers-
 import { DungeonMasterRuntime } from "./dungeon-master.js";
 import { ContextRouterRuntime, type RouterConfig, type RouterContextModule } from "./context-router.js";
 import { ArchivistRuntime } from "./archivist.js";
-
+import type { ArchivistTurnResult } from "./archivist.js";
 export { DungeonMasterRuntime } from "./dungeon-master.js";
-export type { DmTurnInput, DmTurnResult, DungeonMasterRuntimeOptions } from "./dungeon-master.js";
 export { ArchivistRuntime } from "./archivist.js";
 export type { ArchivistTurnInput, ArchivistTurnResult } from "./archivist.js";
 
@@ -102,13 +101,22 @@ export interface EndSessionInput {
 
 export interface EngineRuntimeOptions {
   provider?: LlmProvider;
+  /**
+   * Whether to enable the Archivist runtime which normalizes world state
+   * and summaries after each turn. When disabled, only DM result is used.
+   * Archivist adds an extra LLM call which increases response time.
+   * Set via ENABLE_ARCHIVIST=false env var or pass false here.
+   * @default true
+   */
+  enableArchivist?: boolean;
 }
 
 export class EngineRuntime {
   private readonly gameModule: GameModule;
   private readonly dmRuntime: DungeonMasterRuntime;
   private readonly contextRouterRuntime: ContextRouterRuntime;
-  private readonly archivistRuntime: ArchivistRuntime;
+  private readonly archivistRuntime: ArchivistRuntime | undefined;
+  private readonly enableArchivist: boolean;
   /** Effective mechanics list: TypeScript mechanics only. */
   private readonly mechanics: Mechanic[];
 
@@ -123,7 +131,15 @@ export class EngineRuntime {
       moduleConfig: gameModule.dm
     });
     this.contextRouterRuntime = new ContextRouterRuntime(provider);
-    this.archivistRuntime = new ArchivistRuntime(provider);
+
+    // Check both options and env var for archivist (default: true)
+    const envEnableArchivist = process.env.ENABLE_ARCHIVIST;
+    const envDisabled = envEnableArchivist === "false" || envEnableArchivist === "0";
+    this.enableArchivist = options.enableArchivist !== false && !envDisabled;
+
+    if (this.enableArchivist) {
+      this.archivistRuntime = new ArchivistRuntime(provider);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -385,14 +401,33 @@ export class EngineRuntime {
         worldPatch: dmResult.worldPatch,
         location: dmResult.location,
         summaryPatch: dmResult.summaryPatch,
-        suggestedActions: dmResult.suggestedActions
+        suggestedActions: dmResult.suggestedActions,
+        llmProviderUsed: dmResult.llmProviderUsed
       };
 
-      const archivistResult = await this.archivistRuntime.runTurn({
+      // Skip archivist if disabled
+      if (!this.enableArchivist || !this.archivistRuntime) {
+        return dmNarrativeResult;
+      }
+
+      // Run archivist in background - don't block the user response
+      // Archivist result will be applied asynchronously via hooks if available
+      const archivistPromise = this.archivistRuntime.runTurn({
         actionText: input.actionText,
         worldState: input.worldState,
         dmResult: dmNarrativeResult
       });
+
+      // Race archivist against a timeout - we want to return to user quickly
+      const archivistResult = await Promise.race([
+        archivistPromise,
+        new Promise<ArchivistTurnResult>((resolve) =>
+          setTimeout(() => {
+            console.log(`[EngineRuntime] Archivist timed out, using DM result only`);
+            resolve({});
+          }, 5000) // 5 second timeout for archivist
+        )
+      ]);
 
       return {
         ...dmNarrativeResult,

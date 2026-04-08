@@ -62,6 +62,12 @@ export interface DmTurnResult {
    * the DM's narrative response. The mechanic's ActionResult takes priority.
    */
   mechanicCall?: { id: string; args?: Record<string, unknown> };
+  /**
+   * Which LLM provider was used to generate this response.
+   * Contains provider name from ChatResponse (e.g., "gateway-openai-compatible", "anthropic-compatible")
+   * or underlying provider when using gateway.
+   */
+  llmProviderUsed?: string;
 }
 
 export interface DungeonMasterRuntimeOptions {
@@ -209,6 +215,8 @@ export class DungeonMasterRuntime {
           toolPolicy,
           defaultSuggestedActions
         });
+        // Add provider information to the result
+        parsed.llmProviderUsed = response.provider;
         return parsed;
       } catch (error) {
         lastParseError = error;

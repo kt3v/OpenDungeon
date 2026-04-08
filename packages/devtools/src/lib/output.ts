@@ -31,6 +31,26 @@ export function printError(text: string): void {
   process.stderr.write(color("Error: ", c.red, c.bold) + text + "\n");
 }
 
+export function printWarning(text: string): void {
+  println(color(sym.warn + " " + text, c.yellow));
+}
+
+export function printSuccess(text: string): void {
+  println(color(sym.ok + " " + text, c.green));
+}
+
+export function printInfo(label: string, description?: string): void {
+  if (description) {
+    println(color(sym.arrow + " " + label, c.cyan) + " " + color(description, c.dim));
+  } else {
+    println(color(sym.arrow + " " + label, c.cyan));
+  }
+}
+
+export function printLine(): void {
+  println(color("─".repeat(60), c.dim));
+}
+
 export function printHeader(title: string): void {
   println(color(title, c.bold));
   println();
@@ -47,6 +67,7 @@ export function printHelp(): void {
   println("  " + color("od logs", c.bold) + "  [gateway|web] [-f]   View service logs (use -f to follow live)");
   println("  " + color("od realtime", c.bold) + "                   Follow gateway logs in realtime mode");
   println("  " + color("od configure", c.bold) + " [llm|ports|module]  Change settings");
+  println("  " + color("od doctor", c.bold) + "  env [--fix]          Check/fix environment variables");
   println("  " + color("od reset", c.bold) + "                      Wipe all local data and start fresh");
   println();
   println(color("  Developer tools:", c.dim));

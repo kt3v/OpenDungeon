@@ -461,7 +461,8 @@ export class ActionProcessor {
             characterName: session.characterName,
             action: actionText,
             message: result.message?.slice(0, 80) + (result.message && result.message.length > 80 ? "..." : ""),
-            changes: changes.length > 0 ? changes : undefined
+            changes: changes.length > 0 ? changes : undefined,
+            provider: result.llmProviderUsed ?? "unknown"
           }, null, 0));
         }
       });
