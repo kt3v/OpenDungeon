@@ -4,14 +4,33 @@ import { join } from "node:path";
 import { findProjectRoot } from "../lib/project-root.js";
 import { println, printError, color, c, sym } from "../lib/output.js";
 
-export async function runSetup(_args: string[]): Promise<void> {
+export async function runSetup(args: string[]): Promise<void> {
   const root = findProjectRoot();
 
   println();
   println(color("Setting up OpenDungeon...", c.bold, c.cyan));
   println();
 
-  const setupResult = spawnSync("node", [join(root, "scripts", "setup.mjs")], {
+  // Parse setup mode: 'web', 'game', or full setup
+  const mode = args[0];
+  const setupArgs: string[] = [];
+
+  if (mode === "web") {
+    setupArgs.push("--web-only");
+    println(color("Mode: Web UI only", c.dim));
+  } else if (mode === "game") {
+    setupArgs.push("--game-only");
+    println(color("Mode: Game module only", c.dim));
+  } else if (mode) {
+    printError(`Unknown setup mode: ${mode}`);
+    println("Usage: od setup [web|game]");
+    println("  od setup       Full setup (game module + web UI + database)");
+    println("  od setup web   Web UI only");
+    println("  od setup game  Game module only");
+    process.exit(1);
+  }
+
+  const setupResult = spawnSync("node", [join(root, "scripts", "setup.mjs"), ...setupArgs], {
     stdio: "inherit",
     cwd: root,
   });

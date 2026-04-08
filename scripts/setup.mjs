@@ -35,6 +35,18 @@ const askModuleType = async () => {
   }
 };
 
+const askWebModuleName = async () => {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    process.stdout.write("\n" + "-".repeat(40) + "\n");
+    process.stdout.write("Web UI Setup\n\n");
+    const name = (await rl.question("Enter your web module folder name [default: game-default]: ")).trim() || "game-default";
+    return name;
+  } finally {
+    rl.close();
+  }
+};
+
 const getLocalIp = () => {
   const interfaces = os.networkInterfaces();
   for (const name of Object.keys(interfaces)) {
@@ -137,7 +149,65 @@ const waitForDb = () => {
   throw new Error("Database did not become ready in time");
 };
 
+const readEnvLocal = () => {
+  const envPath = resolve(rootDir, ".env.local");
+  if (!existsSync(envPath)) return { lines: [], map: new Map() };
+  const lines = readFileSync(envPath, "utf8").split("\n");
+  const map = new Map();
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = line.indexOf("=");
+    if (eqIdx === -1) continue;
+    map.set(line.slice(0, eqIdx).trim(), line.slice(eqIdx + 1));
+  }
+  return { lines, map };
+};
+
+const writeEnvLocal = (lines, map) => {
+  const result = [];
+  const written = new Set();
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) { result.push(line); continue; }
+    const eqIdx = line.indexOf("=");
+    if (eqIdx === -1) { result.push(line); continue; }
+    const key = line.slice(0, eqIdx).trim();
+    written.add(key);
+    result.push(`${key}=${map.get(key) ?? ""}`);
+  }
+  for (const [key, val] of map) {
+    if (!written.has(key)) result.push(`${key}=${val}`);
+  }
+  let out = result.join("\n").replace(/\n{3,}/g, "\n\n");
+  if (!out.endsWith("\n")) out += "\n";
+  writeFileSync(resolve(rootDir, ".env.local"), out, "utf8");
+};
+
+const parseSetupArgs = (argv) => {
+  const mode = {
+    webOnly: false,
+    gameOnly: false,
+    full: true
+  };
+
+  for (const arg of argv) {
+    if (arg === "--web-only") {
+      mode.webOnly = true;
+      mode.full = false;
+    }
+    if (arg === "--game-only") {
+      mode.gameOnly = true;
+      mode.full = false;
+    }
+  }
+
+  return mode;
+};
+
 const main = async () => {
+  const setupMode = parseSetupArgs(process.argv.slice(2));
+
   if (!hasCommand("docker")) {
     throw new Error("Docker is required for setup. Install Docker Desktop or Docker Engine first.");
   }
@@ -156,82 +226,126 @@ const main = async () => {
   const currentEnv = parseEnvFile(envLocalPath);
   const exampleEnv = parseEnvFile(envExamplePath);
 
-  // ASK FOR GAME MODULE CHOICE
-  const moduleChoice = await askModuleType();
-  const gameModuleDir = moduleChoice.name.startsWith("game-") ? moduleChoice.name : `game-${moduleChoice.name}`;
-  const gameModulePath = resolve(rootDir, "games", gameModuleDir);
+  // ASK FOR GAME MODULE CHOICE (skip if web-only mode)
+  let moduleChoice = null;
+  if (!setupMode.webOnly) {
+    moduleChoice = await askModuleType();
+  }
+
+  // Determine module names
+  const gameModuleDir = moduleChoice
+    ? (moduleChoice.name.startsWith("game-") ? moduleChoice.name : `game-${moduleChoice.name}`)
+    : null;
+  const gameModulePath = gameModuleDir ? resolve(rootDir, "games", gameModuleDir) : null;
+
+  // For web-only mode, ask for module name or use existing from env
+  let webModuleDir = gameModuleDir;
+  if (setupMode.webOnly) {
+    const webName = await askWebModuleName();
+    webModuleDir = webName.startsWith("game-") ? webName : `game-${webName}`;
+  }
 
   if (!existsSync(resolve(rootDir, "games"))) {
     mkdirSync(resolve(rootDir, "games"), { recursive: true });
   }
 
-  if (!existsSync(gameModulePath)) {
-    if (moduleChoice.type === "example") {
-      process.stdout.write(`\nCopying example module to ./games/${gameModuleDir}...\n`);
-      cpSync(resolve(rootDir, "packages", "game-example"), gameModulePath, {
-        recursive: true,
-        filter: (src) => {
-          const normalized = src.replace(/\\/g, "/");
-          if (normalized.includes("/.turbo/")) return false;
-          if (normalized.includes("/node_modules/")) return false;
-          if (normalized.includes("/dist/")) return false;
-          return true;
-        }
-      });
+  // GAME MODULE SETUP (skip if web-only mode)
+  if (!setupMode.webOnly && gameModulePath) {
+    if (!existsSync(gameModulePath)) {
+      if (moduleChoice.type === "example") {
+        process.stdout.write(`\nCopying example module to ./games/${gameModuleDir}...\n`);
+        cpSync(resolve(rootDir, "packages", "game-example"), gameModulePath, {
+          recursive: true,
+          filter: (src) => {
+            const normalized = src.replace(/\\/g, "/");
+            if (normalized.includes("/.turbo/")) return false;
+            if (normalized.includes("/node_modules/")) return false;
+            if (normalized.includes("/dist/")) return false;
+            return true;
+          }
+        });
+      } else {
+        process.stdout.write(`\nGenerating new module in ./games/${gameModuleDir}...\n`);
+        run("node", [resolve(rootDir, "scripts", "create-game-module.mjs"), `games/${gameModuleDir}`, "--name", `@opendungeon/${moduleChoice.name}`, "--no-web"]);
+      }
     } else {
-      process.stdout.write(`\nGenerating new module in ./games/${gameModuleDir}...\n`);
-      run("node", [resolve(rootDir, "scripts", "create-game-module.mjs"), `games/${gameModuleDir}`, "--name", `@opendungeon/${moduleChoice.name}`, "--no-web"]);
+      process.stdout.write(`\nFolder ./games/${gameModuleDir} already exists. Using it.\n`);
     }
+
+    // Update env with game module path
+    const { lines: currentLines, map: currentMap } = readEnvLocal();
+    currentMap.set("GAME_MODULE_PATH", `./games/${gameModuleDir}`);
+    writeEnvLocal(currentLines, currentMap);
+    process.stdout.write(`Updated .env.local: GAME_MODULE_PATH=./games/${gameModuleDir}\n`);
+  }
+
+  // WEB UI SETUP (skip if game-only mode)
+  if (!setupMode.gameOnly) {
+    const webModulePath = resolve(rootDir, "web", webModuleDir);
+    const defaultUiPath = resolve(rootDir, "apps/web/src/default");
+
+    if (!existsSync(webModulePath) && existsSync(defaultUiPath)) {
+      process.stdout.write(`\nScaffolding web UI module to ./web/${webModuleDir}...\n`);
+      mkdirSync(webModulePath, { recursive: true });
+      cpSync(defaultUiPath, webModulePath, { recursive: true });
+    } else if (existsSync(webModulePath)) {
+      process.stdout.write(`\nFolder ./web/${webModuleDir} already exists. Using it.\n`);
+    }
+
+    // Update env with web module path
+    const { lines: currentLines, map: currentMap } = readEnvLocal();
+    currentMap.set("WEB_MODULE_PATH", `./web/${webModuleDir}`);
+    writeEnvLocal(currentLines, currentMap);
+    process.stdout.write(`Updated .env.local: WEB_MODULE_PATH=./web/${webModuleDir}\n`);
+  }
+
+  // DATABASE SETUP (skip if game-only or web-only mode - only run for full setup)
+  if (setupMode.full) {
+    // Determine ideal ports
+    const webPort = await findAvailablePort(Number(currentEnv.WEB_PORT || exampleEnv.WEB_PORT || 3000));
+    const gatewayPort = await findAvailablePort(Number(currentEnv.GATEWAY_PORT || exampleEnv.GATEWAY_PORT || 3001), [webPort]);
+
+    const config = {
+      ...exampleEnv, // Start with defaults
+      ...currentEnv, // Overlay existing user keys (API keys, etc.)
+      // Force override infrastructural keys
+      DATABASE_URL: currentEnv.DATABASE_URL || exampleEnv.DATABASE_URL,
+      WEB_PORT: webPort.toString(),
+      GATEWAY_PORT: gatewayPort.toString(),
+      NEXT_PUBLIC_GATEWAY_URL: `http://${localIp}:${gatewayPort}`,
+    };
+
+    const newEnvContent = Object.entries(config)
+      .map(([key, value]) => `${key}=${value}`)
+      .join("\n");
+
+    writeFileSync(envLocalPath, newEnvContent);
+    process.stdout.write(`Updated .env.local: Web on ${webPort}, Gateway on ${gatewayPort}, IP: ${localIp}\n`);
+
+    run("docker", ["compose", "up", "-d", "db"]);
+    waitForDb();
+
+    const envFromFile = parseEnvFile(envLocalPath);
+    const mergedEnv = { ...process.env, ...envFromFile };
+
+    run("pnpm", ["run", "db:generate"], { env: mergedEnv });
+    run("pnpm", ["run", "db:push"], { env: mergedEnv });
+
+    process.stdout.write("\n" + "-".repeat(40) + "\n");
+    process.stdout.write(`SUCCESS! Your game is ready in: ./games/${gameModuleDir}\n`);
+    process.stdout.write(`Web UI ready in:                ./web/${webModuleDir}\n\n`);
+    process.stdout.write(`Next: od start\n`);
+    process.stdout.write("-".repeat(40) + "\n\n");
   } else {
-    process.stdout.write(`\nFolder ./games/${gameModuleDir} already exists. Using it.\n`);
+    // Partial setup summary
+    process.stdout.write("\n" + "-".repeat(40) + "\n");
+    if (setupMode.webOnly) {
+      process.stdout.write(`SUCCESS! Web UI module ready in: ./web/${webModuleDir}\n`);
+    } else if (setupMode.gameOnly) {
+      process.stdout.write(`SUCCESS! Game module ready in: ./games/${gameModuleDir}\n`);
+    }
+    process.stdout.write("-".repeat(40) + "\n\n");
   }
-
-  // Create web UI module at web/<gameModuleDir>/ — just source files, no package.json needed
-  const webModulePath = resolve(rootDir, "web", gameModuleDir);
-  const defaultUiPath = resolve(rootDir, "apps/web/src/default");
-  if (!existsSync(webModulePath) && existsSync(defaultUiPath)) {
-    process.stdout.write(`\nScaffolding web UI module to ./web/${gameModuleDir}...\n`);
-    mkdirSync(webModulePath, { recursive: true });
-    cpSync(defaultUiPath, webModulePath, { recursive: true });
-  }
-
-  // Determine ideal ports
-  const webPort = await findAvailablePort(Number(currentEnv.WEB_PORT || exampleEnv.WEB_PORT || 3000));
-  const gatewayPort = await findAvailablePort(Number(currentEnv.GATEWAY_PORT || exampleEnv.GATEWAY_PORT || 3001), [webPort]);
-
-  const config = {
-    ...exampleEnv, // Start with defaults
-    ...currentEnv, // Overlay existing user keys (API keys, etc.)
-    // Force override infrastructural keys
-    DATABASE_URL: currentEnv.DATABASE_URL || exampleEnv.DATABASE_URL,
-    WEB_PORT: webPort.toString(),
-    GATEWAY_PORT: gatewayPort.toString(),
-    NEXT_PUBLIC_GATEWAY_URL: `http://${localIp}:${gatewayPort}`,
-    GAME_MODULE_PATH: `./games/${gameModuleDir}`,
-    WEB_MODULE_PATH: `./web/${gameModuleDir}`
-  };
-
-  const newEnvContent = Object.entries(config)
-    .map(([key, value]) => `${key}=${value}`)
-    .join("\n");
-
-  writeFileSync(envLocalPath, newEnvContent);
-  process.stdout.write(`Updated .env.local: Web on ${webPort}, Gateway on ${gatewayPort}, IP: ${localIp}\n`);
-
-  run("docker", ["compose", "up", "-d", "db"]);
-  waitForDb();
-
-  const envFromFile = parseEnvFile(envLocalPath);
-  const mergedEnv = { ...process.env, ...envFromFile };
-
-  run("pnpm", ["run", "db:generate"], { env: mergedEnv });
-  run("pnpm", ["run", "db:push"], { env: mergedEnv });
-
-  process.stdout.write("\n" + "-".repeat(40) + "\n");
-  process.stdout.write(`SUCCESS! Your game is ready in: ./games/${gameModuleDir}\n`);
-  process.stdout.write(`Web UI ready in:                ./web/${gameModuleDir}\n\n`);
-  process.stdout.write(`Next: od start\n`);
-  process.stdout.write("-".repeat(40) + "\n\n");
 };
 
 await main();

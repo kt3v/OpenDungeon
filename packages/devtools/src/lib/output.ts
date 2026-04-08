@@ -40,7 +40,7 @@ export function printHelp(): void {
   println();
   println(color("OpenDungeon Engine Manager", c.bold, c.cyan));
   println();
-  println("  " + color("od setup", c.bold) + "                      First-time setup (Docker, ports, database)");
+  println("  " + color("od setup", c.bold) + " [web|game]             First-time setup (Docker, ports, database)");
   println("  " + color("od start", c.bold) + " [full|gateway|web]   Start services in the background");
   println("  " + color("od stop", c.bold) + "  [full|gateway|web]   Stop background services");
   println("  " + color("od status", c.bold) + "                     Show what is running and where");
