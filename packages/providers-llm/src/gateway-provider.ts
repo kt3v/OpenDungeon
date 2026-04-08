@@ -372,15 +372,26 @@ export class GatewayLLMProvider implements LlmProvider {
 
     const startTime = Date.now();
     const logPrefix = `[GatewayLLM ${new Date().toISOString()}]`;
+    const trace = request.trace;
+    const providerOrder = this.lastSuccessfulProvider === "primary"
+      ? [this.primarySlot.name, ...(this.fallbackSlot ? [this.fallbackSlot.name] : [])]
+      : this.fallbackSlot
+        ? [this.fallbackSlot.name, this.primarySlot.name]
+        : [this.primarySlot.name];
+    trace?.setMeta?.("dm.gateway.providerOrder", providerOrder);
+    trace?.setMeta?.("dm.gateway.maxRetries", this.resolvedConfig.maxRetries);
+    trace?.setMeta?.("dm.gateway.maxConcurrent", this.resolvedConfig.maxConcurrent);
 
     try {
       const response = await this.executeWithRoundRobin(request, startTime, logPrefix);
       const latency = Date.now() - startTime;
+      trace?.setMeta?.("dm.gateway.totalProviderTimeMs", latency);
       this.metrics.recordSuccess(latency);
       this.emitMetrics();
       return response;
     } catch (error) {
       const latency = Date.now() - startTime;
+      trace?.setMeta?.("dm.gateway.totalProviderTimeMs", latency);
       this.metrics.recordFailure();
       this.emitMetrics();
       console.warn(`${logPrefix} Request failed after ${latency}ms:`, error instanceof Error ? error.message : error);
@@ -407,6 +418,7 @@ export class GatewayLLMProvider implements LlmProvider {
    * Round-robin execution: try providers in order, skip rate-limited ones
    */
   private async executeWithRoundRobin(request: ChatRequest, startTime: number, logPrefix: string): Promise<ChatResponse> {
+    const trace = request.trace;
     // Determine which provider to try first based on last successful
     const providers: ProviderSlot[] = this.lastSuccessfulProvider === "primary"
       ? [this.primarySlot, ...(this.fallbackSlot ? [this.fallbackSlot] : [])]
@@ -417,6 +429,7 @@ export class GatewayLLMProvider implements LlmProvider {
     console.log(`${logPrefix} Starting round-robin. Providers: ${providers.map(p => p.name).join(", ")}. Elapsed: ${Date.now() - startTime}ms`);
 
     const errors: Error[] = [];
+    const rateLimitedProviders: string[] = [];
 
     for (const slot of providers) {
       const slotStartTime = Date.now();
@@ -427,6 +440,7 @@ export class GatewayLLMProvider implements LlmProvider {
         this.metrics.recordRateLimited(slot.isFallback);
         const rateLimitError = new LlmProviderError(`Rate limit exceeded for ${slot.name}`, { status: 429 });
         console.log(`${logPrefix} Provider "${slot.name}" rate limited. Took: ${Date.now() - slotStartTime}ms`);
+        rateLimitedProviders.push(slot.name);
         errors.push(rateLimitError);
         continue; // Try next provider
       }
@@ -442,6 +456,9 @@ export class GatewayLLMProvider implements LlmProvider {
         } else {
           this.metrics.recordPrimary();
         }
+        trace?.setMeta?.("dm.gateway.usedFallback", slot.isFallback);
+        trace?.setMeta?.("dm.gateway.finalProvider", slot.name);
+        trace?.setMeta?.("dm.gateway.rateLimitedProviders", rateLimitedProviders);
         console.log(`${logPrefix} Provider "${slot.name}" succeeded. Total time: ${Date.now() - startTime}ms`);
         return response;
       } catch (error) {
@@ -452,9 +469,12 @@ export class GatewayLLMProvider implements LlmProvider {
           this.metrics.recordRateLimited(slot.isFallback);
         }
         console.log(`${logPrefix} Provider "${slot.name}" failed after ${errorTime - slotStartTime}ms: ${error instanceof Error ? error.message : error}`);
+        trace?.setMeta?.(`dm.gateway.provider.${slot.name}.failed`, true);
         errors.push(error as Error);
       }
     }
+
+    trace?.setMeta?.("dm.gateway.rateLimitedProviders", rateLimitedProviders);
 
     // All providers exhausted
     throw new LlmProviderError(
@@ -464,8 +484,10 @@ export class GatewayLLMProvider implements LlmProvider {
   }
 
   private async executeOnProvider(request: ChatRequest, slot: ProviderSlot, startTime: number, logPrefix: string): Promise<ChatResponse> {
+    const trace = request.trace;
     // Check circuit breaker
     if (!slot.circuitBreaker.canExecute()) {
+      trace?.setMeta?.(`dm.gateway.provider.${slot.name}.circuitOpen`, true);
       throw new LlmProviderError(`Circuit breaker is open for ${slot.name}`, { status: 503 });
     }
 
@@ -475,6 +497,8 @@ export class GatewayLLMProvider implements LlmProvider {
     await slot.semaphore.acquire();
     const afterSemaphore = Date.now();
     const waitTime = afterSemaphore - beforeSemaphore;
+    trace?.setMeta?.(`dm.gateway.provider.${slot.name}.queueWaitMs`, waitTime);
+    trace?.setMeta?.(`dm.gateway.provider.${slot.name}.queueDepthAtAcquire`, slot.semaphore.queueLength);
     if (waitTime > 100) {
       console.log(`${logPrefix} [${slot.name}] Waited ${waitTime}ms for concurrency slot!`);
     }
@@ -499,6 +523,10 @@ export class GatewayLLMProvider implements LlmProvider {
         }
       };
 
+      trace?.setMeta?.(`dm.gateway.provider.${slot.name}.success`, true);
+      trace?.setMeta?.("dm.gateway.underlyingProvider", response.provider);
+      trace?.setMeta?.("dm.gateway.underlyingModel", response.model);
+
       return enhancedResponse;
     } catch (error) {
       slot.circuitBreaker.recordFailure();
@@ -510,13 +538,20 @@ export class GatewayLLMProvider implements LlmProvider {
 
   private async executeWithRetry(request: ChatRequest, slot: ProviderSlot, startTime: number, logPrefix: string): Promise<ChatResponse> {
     const maxRetries = this.resolvedConfig.maxRetries;
+    const trace = request.trace;
+    let retryCount = 0;
+    let backoffTotalMs = 0;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const attemptStart = Date.now();
       try {
+        trace?.setMeta?.(`dm.gateway.provider.${slot.name}.attemptCount`, attempt + 1);
         console.log(`${logPrefix} [${slot.name}] LLM call attempt ${attempt + 1}/${maxRetries + 1}. Elapsed: ${attemptStart - startTime}ms`);
         const response = await slot.provider.createResponse(request);
         const llmTime = Date.now() - attemptStart;
+        trace?.setMeta?.(`dm.gateway.provider.${slot.name}.rawLatencyMs`, llmTime);
+        trace?.setMeta?.("dm.gateway.retryCount", retryCount);
+        trace?.setMeta?.("dm.gateway.backoffMsTotal", backoffTotalMs);
         console.log(`${logPrefix} [${slot.name}] LLM responded in ${llmTime}ms`);
         return response;
       } catch (error) {
@@ -531,6 +566,11 @@ export class GatewayLLMProvider implements LlmProvider {
 
         // Exponential backoff with jitter
         const delay = this.calculateBackoff(attempt);
+        retryCount += 1;
+        backoffTotalMs += delay;
+        trace?.setMeta?.("dm.gateway.retryCount", retryCount);
+        trace?.setMeta?.("dm.gateway.backoffMsTotal", backoffTotalMs);
+        trace?.setMeta?.(`dm.gateway.provider.${slot.name}.lastRetryCategory`, classified.category);
         console.log(`${logPrefix} [${slot.name}] Retrying after ${delay}ms backoff...`);
         await sleep(delay);
       }

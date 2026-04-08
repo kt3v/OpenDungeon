@@ -292,6 +292,30 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       })
     : undefined;
   const gatewayProvider = createGatewayProviderFromEnv(primaryProvider, fallbackProvider);
+  const hasRouterOverrides = [
+    process.env.LLM_ROUTER_PROVIDER,
+    process.env.LLM_ROUTER_BASE_URL,
+    process.env.LLM_ROUTER_API_KEY,
+    process.env.LLM_ROUTER_MODEL,
+    process.env.LLM_ROUTER_ENDPOINT_PATH,
+    process.env.LLM_ROUTER_ANTHROPIC_VERSION,
+    process.env.LLM_ROUTER_EXTRA_HEADERS_JSON
+  ].some((value) => typeof value === "string" && value.trim().length > 0);
+  const routerProvider = hasRouterOverrides
+    ? (() => {
+        const routerBaseConfig = getProviderRuntimeConfigFromEnv();
+        return createProvider({
+          ...routerBaseConfig,
+          provider: (process.env.LLM_ROUTER_PROVIDER as typeof routerBaseConfig.provider | undefined) ?? routerBaseConfig.provider,
+          baseUrl: process.env.LLM_ROUTER_BASE_URL ?? routerBaseConfig.baseUrl,
+          apiKey: process.env.LLM_ROUTER_API_KEY ?? routerBaseConfig.apiKey,
+          model: process.env.LLM_ROUTER_MODEL ?? routerBaseConfig.model,
+          endpointPath: process.env.LLM_ROUTER_ENDPOINT_PATH ?? routerBaseConfig.endpointPath,
+          anthropicVersion: process.env.LLM_ROUTER_ANTHROPIC_VERSION ?? routerBaseConfig.anthropicVersion,
+          extraHeaders: routerBaseConfig.extraHeaders
+        });
+      })()
+    : gatewayProvider;
 
   if (serverConfig.llmMetricsLogIntervalMs > 0) {
     setInterval(() => {
@@ -302,7 +326,10 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
   const createRuntimeContext = async (): Promise<RuntimeContext> => {
     const loadedModule = await loadGameModuleFromPath(process.env.GAME_MODULE_PATH);
-    const runtime = new EngineRuntime(loadedModule.gameModule, { provider: gatewayProvider });
+    const runtime = new EngineRuntime(loadedModule.gameModule, {
+      provider: gatewayProvider,
+      routerProvider
+    } as ConstructorParameters<typeof EngineRuntime>[1]);
     return { loadedModule, runtime };
   };
 
@@ -399,7 +426,8 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   // ---------------------------------------------------------------------------
 
   // Architect uses its own provider (can be different model from gateway)
-  const architectProvider = createProviderFromEnv();
+  const architectProvider = createArchitectProviderFromEnv();
+  const backgroundLoreProvider = createProviderFromEnv();
   const architect = persistence.prisma
     ? {
         runtime: new ArchitectRuntime({ provider: architectProvider }),
@@ -465,7 +493,14 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     }
   };
 
-  let processor = new ActionProcessor(runtimeCtx.runtime, worldStore, persistence.prisma, processorCallbacks, architect);
+  let processor = new ActionProcessor(
+    runtimeCtx.runtime,
+    worldStore,
+    persistence.prisma,
+    processorCallbacks,
+    backgroundLoreProvider,
+    architect
+  );
 
   // ---------------------------------------------------------------------------
   // Graceful drain state
@@ -521,7 +556,14 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       const drained = await processor.drain(30_000);
       if (!drained) console.warn("[reload] Drain timed out after 30s, forcing swap");
       runtimeCtx = newCtx;
-      processor = new ActionProcessor(newCtx.runtime, worldStore, persistence.prisma, processorCallbacks, architect);
+      processor = new ActionProcessor(
+        newCtx.runtime,
+        worldStore,
+        persistence.prisma,
+        processorCallbacks,
+        backgroundLoreProvider,
+        architect
+      );
       console.log("[reload] Module reloaded:", newCtx.loadedModule.entryPath);
     } catch (err) {
       console.error("[reload] Failed to load new module, keeping current:", err);

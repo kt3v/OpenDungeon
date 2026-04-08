@@ -10,7 +10,8 @@ import type {
   ResourceSchema,
   CharacterTemplate,
   DungeonMasterModuleConfig,
-  DungeonMasterContextModule
+  DungeonMasterContextModule,
+  LoreFile
 } from "./index.js";
 import {
   classesFileSchema,
@@ -549,7 +550,7 @@ export const loadInitialStateFileSync = (filePath: string): Record<string, unkno
   return initialStateFileSchema.parse(parsed);
 };
 
-export const loadLoreFilesSync = (dirPath: string): Array<{ file: string; content: string }> => {
+export const loadLoreFilesSync = (dirPath: string): LoreFile[] => {
   let files: string[];
   try {
     files = readdirSync(dirPath);
@@ -557,21 +558,53 @@ export const loadLoreFilesSync = (dirPath: string): Array<{ file: string; conten
     return [];
   }
 
-  const results: Array<{ file: string; content: string }> = [];
+  const results: LoreFile[] = [];
 
   for (const file of files) {
     if (!file.endsWith(".md")) continue;
 
     const fullPath = join(dirPath, file);
-    let content: string;
+    let raw: string;
 
     try {
-      content = readFileSync(fullPath, "utf8");
-      results.push({ file, content });
+      raw = readFileSync(fullPath, "utf8");
     } catch (err) {
       console.warn(`[content-sdk] Failed to read lore file "${file}": ${String(err)}`);
       continue;
     }
+
+    const { frontmatter, body } = splitFrontmatter(raw);
+    const parsed = parseFrontmatterObject(frontmatter);
+    const content = body.trim();
+    if (!content) continue;
+
+    const idFromMeta = typeof parsed.id === "string" ? parsed.id.trim() : "";
+    const fallbackId = file.replace(/\.md$/, "");
+    const loreFile: LoreFile = {
+      file,
+      id: idFromMeta || fallbackId,
+      content
+    };
+
+    if (typeof parsed.priority === "number") loreFile.priority = parsed.priority;
+    if (typeof parsed.alwaysInclude === "boolean") loreFile.alwaysInclude = parsed.alwaysInclude;
+
+    const triggers = dedupeStrings(toStringArray(parsed.triggers));
+    if (triggers.length > 0) loreFile.triggers = triggers;
+
+    const dependencies = parseDependencies(parsed.dependsOn ?? parsed.depends ?? parsed.deps, file);
+    if (dependencies.length > 0) loreFile.dependsOn = dependencies;
+
+    const references = parseMachineReferences(parsed.references ?? parsed.refs, file, "references");
+    if (references.length > 0) loreFile.references = references;
+
+    const provides = parseMachineReferences(parsed.provides, file, "provides");
+    if (provides.length > 0) loreFile.provides = provides;
+
+    const whenTags = dedupeStrings(toStringArray(parsed.when));
+    if (whenTags.length > 0) loreFile.when = whenTags;
+
+    results.push(loreFile);
   }
 
   return results;

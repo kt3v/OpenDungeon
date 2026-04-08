@@ -7,6 +7,7 @@ import type { SessionEndReason } from "@opendungeon/shared";
 import type { ArchitectRuntime, ArchitectOperationExecutor } from "@opendungeon/architect";
 import { serverConfig } from "./server-config.js";
 import type { WorldStore } from "./world-store.js";
+import { createTurnTrace, writeBackgroundTrace } from "./trace-logger.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -138,6 +139,7 @@ export class ActionProcessor {
     private readonly worldStore: WorldStore,
     private readonly prisma: PrismaClient | null,
     private readonly callbacks: ProcessorCallbacks,
+    private readonly backgroundLoreProvider: ReturnType<typeof createProviderFromEnv>,
     private readonly architect?: {
       runtime: ArchitectRuntime;
       executor: ArchitectOperationExecutor;
@@ -228,23 +230,38 @@ export class ActionProcessor {
     const entry = this.queue.get(actionId);
     if (!entry) return;
 
+    const trace = createTurnTrace({
+      actionId,
+      campaignId,
+      sessionId,
+      mechanicActionId: mechanicActionId ?? null,
+      actionTextLength: actionText.length
+    });
+
     entry.status = "processing";
     this._activeCount++;
 
     try {
-      const session = this.callbacks.getSession(sessionId);
-      const campaign = this.callbacks.getCampaign(campaignId);
+      const session = await trace.measure("gateway.getSession", async () => this.callbacks.getSession(sessionId));
+      const campaign = await trace.measure("gateway.getCampaign", async () => this.callbacks.getCampaign(campaignId));
 
       if (!session || !campaign) {
         throw new Error("Session or campaign not found at processing time");
       }
+
+      trace.setMany({
+        recentEventsCount: session.recentEvents.length,
+        suggestedActionsCount: session.suggestedActions.length,
+        sessionStatus: session.status
+      });
 
       // ------------------------------------------------------------------
       // Phase A — Read (can run concurrently across campaigns)
       // ------------------------------------------------------------------
 
       // Canonical world view from DB
-      const worldView = await this.worldStore.getView(campaignId);
+      const worldView = await trace.measure("db.worldStore.getView", async () => this.worldStore.getView(campaignId));
+      trace.set("worldFactCount", Object.keys(worldView).length);
 
       // Character-local state overlays the shared world view
       // This gives the DM a merged context while keeping things separated
@@ -252,23 +269,29 @@ export class ActionProcessor {
 
       // Recent mutations from OTHER players (cross-player awareness)
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000); // last 24h
-      const recentMutations = await this.worldStore.getRecentMutations(
-        campaignId,
-        sessionId,
-        since
+      const recentMutations = await trace.measure("db.worldStore.getRecentMutations", async () =>
+        this.worldStore.getRecentMutations(campaignId, sessionId, since)
       );
+      trace.set("recentMutationsCount", recentMutations.length);
 
       // RAG: lore retrieval
       let contextualLore: string | undefined;
-      if (this.prisma) {
+      if (this.prisma && serverConfig.enableTurnLoreExtraction) {
         try {
+          const loreReadStartedAt = Date.now();
           const allLore = await this.prisma.loreEntry.findMany({
             where: { campaignId }
           });
+          trace.recordPhase("db.loreEntry.findMany", Date.now() - loreReadStartedAt);
+          trace.set("loreEntriesScanned", allLore.length);
+
+          const loreMatchStartedAt = Date.now();
           const actionLower = actionText.toLowerCase();
           const matching = allLore.filter((l: { entityName: string }) =>
             actionLower.includes(l.entityName.toLowerCase())
           );
+          trace.recordPhase("db.loreEntry.filterMatches", Date.now() - loreMatchStartedAt);
+          trace.set("loreMatchesCount", matching.length);
           const parts: string[] = matching.map(
             (l: { entityName: string; type: string; description: string }) => `${l.entityName} (${l.type}): ${l.description}`
           );
@@ -287,6 +310,7 @@ export class ActionProcessor {
           console.warn("[ActionProcessor] RAG retrieval failed:", err);
         }
       }
+      trace.set("turnLoreExtractionEnabled", serverConfig.enableTurnLoreExtraction);
 
       // ------------------------------------------------------------------
       // Phase B — LLM execution (runs in parallel, no campaign lock needed)
@@ -300,6 +324,7 @@ export class ActionProcessor {
         className: session.characterClass
       };
 
+      const executeTurnStartedAt = Date.now();
       const result = await this.runtime.executeTurn({
         tenantId: campaign.ownerId,
         campaignId,
@@ -315,7 +340,18 @@ export class ActionProcessor {
         summary: session.summary,
         contextualLore,
         lastSuggestedActions: session.suggestedActions,
-        playerLanguage: session.userLanguage
+        playerLanguage: session.userLanguage,
+        trace: {
+          recordPhase: (phase: string, durationMs: number) => trace.recordPhase(phase, durationMs),
+          setMeta: (key: string, value: unknown) => trace.set(key, value)
+        }
+      } as Parameters<EngineRuntime["executeTurn"]>[0]);
+      trace.recordPhase("engine.executeTurn.total", Date.now() - executeTurnStartedAt);
+      trace.setMany({
+        handledByMechanic: Boolean(result.handledByMechanic),
+        worldPatchKeys: Object.keys(result.worldPatch ?? {}).length,
+        responseMessageLength: result.message.length,
+        sessionEnded: result.endSession ?? null
       });
 
       // Log unhandled intents (fire-and-forget, no await — does not block the turn)
@@ -336,10 +372,14 @@ export class ActionProcessor {
       // Phase C — Commit (serialised per campaign via promise chain)
       // ------------------------------------------------------------------
 
+      const lockWaitStartedAt = Date.now();
       await this.withCampaignLock(campaignId, async () => {
+        trace.recordPhase("commit.waitForCampaignLock", Date.now() - lockWaitStartedAt);
         // Write shared world patch to canonical WorldFact store
         if (result.worldPatch && Object.keys(result.worldPatch).length > 0) {
-          await this.worldStore.applyPatch(campaignId, result.worldPatch, sessionId);
+          await trace.measure("commit.worldStore.applyPatch", async () =>
+            this.worldStore.applyPatch(campaignId, result.worldPatch!, sessionId)
+          );
         }
 
         // Handle session end (run hooks before committing end state)
@@ -347,17 +387,21 @@ export class ActionProcessor {
         let endWorldPatch: Record<string, unknown> | undefined;
 
         if (result.endSession) {
-          const endPatch = await this.runtime.endSession({
-            tenantId: campaign.ownerId,
-            campaignId,
-            sessionId,
-            playerId: session.userId,
-            reason: result.endSession,
-            worldState: mergedWorldState
-          });
+          const endPatch = await trace.measure("engine.endSession", async () =>
+            this.runtime.endSession({
+              tenantId: campaign.ownerId,
+              campaignId,
+              sessionId,
+              playerId: session.userId,
+              reason: result.endSession as SessionEndReason,
+              worldState: mergedWorldState
+            })
+          );
 
           if (endPatch.worldPatch && Object.keys(endPatch.worldPatch).length > 0) {
-            await this.worldStore.applyPatch(campaignId, endPatch.worldPatch, sessionId);
+            await trace.measure("commit.worldStore.applyEndPatch", async () =>
+              this.worldStore.applyPatch(campaignId, endPatch.worldPatch!, sessionId)
+            );
             endWorldPatch = endPatch.worldPatch;
           }
 
@@ -382,39 +426,44 @@ export class ActionProcessor {
         };
 
         // Commit session mutation (persists to DB and updates in-memory)
-        await this.callbacks.commitSessionMutation(sessionId, {
-          characterState: newCharacterState,
-          location: result.location,
-          summary: result.summaryPatch?.shortSummary ?? session.summary,
-          suggestedActions:
-            result.suggestedActions && result.suggestedActions.length > 0
-              ? result.suggestedActions
-              : undefined,
-          appendEvent: event,
-          endSession: endSessionReason
-        });
+        await trace.measure("commit.commitSessionMutation", async () =>
+          this.callbacks.commitSessionMutation(sessionId, {
+            characterState: newCharacterState,
+            location: result.location,
+            summary: result.summaryPatch?.shortSummary ?? session.summary,
+            suggestedActions:
+              result.suggestedActions && result.suggestedActions.length > 0
+                ? result.suggestedActions
+                : undefined,
+            appendEvent: event,
+            ...(endSessionReason ? { endSession: endSessionReason } : {})
+          })
+        );
 
         // Persist event to EventLog
         if (this.prisma) {
-          await this.prisma.eventLog.create({
-            data: {
-              campaignId,
-              sessionId,
-              type: "action.resolved",
-              payload: JSON.parse(JSON.stringify({
-                actionId,
-                playerId: session.userId,
-                actionText,
-                message: result.message,
-                hadWorldPatch: !!result.worldPatch,
-                hadCharacterState: !!(result as { characterState?: unknown }).characterState,
-                endSession: endSessionReason ?? null,
-                endWorldPatch: endWorldPatch ?? null
-              })) as object
-            }
-          });
+          await trace.measure("commit.eventLog.create", async () =>
+            this.prisma!.eventLog.create({
+              data: {
+                campaignId,
+                sessionId,
+                type: "action.resolved",
+                payload: JSON.parse(JSON.stringify({
+                  actionId,
+                  playerId: session.userId,
+                  actionText,
+                  message: result.message,
+                  hadWorldPatch: !!result.worldPatch,
+                  hadCharacterState: !!(result as { characterState?: unknown }).characterState,
+                  endSession: endSessionReason ?? null,
+                  endWorldPatch: endWorldPatch ?? null
+                })) as object
+              }
+            }).then(() => undefined)
+          );
 
           // Update ActionQueue row status
+          const queueUpdateStartedAt = Date.now();
           await this.prisma.actionQueue
             .update({
               where: { id: actionId },
@@ -431,6 +480,7 @@ export class ActionProcessor {
             .catch((err: unknown) =>
               console.warn("[ActionProcessor] DB status update failed:", err)
             );
+          trace.recordPhase("commit.actionQueue.update", Date.now() - queueUpdateStartedAt);
         }
 
         // Store result in-memory for polling
@@ -473,7 +523,9 @@ export class ActionProcessor {
       });
 
       // Background: lore extraction + chronicler (fire-and-forget)
+      trace.set("backgroundTasksScheduled", true);
       this.runBackgroundTasks(
+        actionId,
         sessionId,
         campaignId,
         actionText,
@@ -481,10 +533,12 @@ export class ActionProcessor {
         session.recentEvents.length + 1,
         !!result.endSession
       );
+      await trace.flush({ status: "done" });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       entry.status = "failed";
       entry.errorMessage = msg;
+      trace.set("error", msg);
       
       const session = this.callbacks.getSession(sessionId);
       console.log(`[EVENT] ACTION_FAILED`, JSON.stringify({
@@ -501,6 +555,7 @@ export class ActionProcessor {
           })
           .catch(() => {});
       }
+      await trace.flush({ status: "failed" });
     } finally {
       this._activeCount--;
     }
@@ -537,6 +592,7 @@ export class ActionProcessor {
   // ---------------------------------------------------------------------------
 
   private runBackgroundTasks(
+    actionId: string,
     sessionId: string,
     campaignId: string,
     actionText: string,
@@ -546,10 +602,15 @@ export class ActionProcessor {
   ): void {
     if (!this.prisma) return;
 
-    const llmProvider = createProviderFromEnv();
+    const backgroundFlags = {
+      turnLoreExtractionEnabled: serverConfig.enableTurnLoreExtraction,
+      chroniclerEnabled: serverConfig.enableChronicler
+    };
 
     // Tier 1: lore extraction every turn — atomic upsert via executor (or naive fallback)
-    extractLore(llmProvider, actionText, responseMessage)
+    if (serverConfig.enableTurnLoreExtraction) {
+      const startedAt = Date.now();
+      extractLore(this.backgroundLoreProvider, actionText, responseMessage)
       .then(async (entities: LoreEntryPayload[]) => {
         if (this.architect) {
           const ops = entities.map((ent) => ({
@@ -570,18 +631,43 @@ export class ActionProcessor {
             });
           }
         }
+
+        await writeBackgroundTrace({
+          actionId,
+          campaignId,
+          sessionId,
+          taskType: "extractLore",
+          durationMs: Date.now() - startedAt,
+          success: true,
+          entitiesExtracted: entities.length,
+          usedArchitectExecutor: Boolean(this.architect),
+          ...backgroundFlags
+        });
       })
-      .catch((err: unknown) => console.error("[ActionProcessor] lore extraction failed:", err));
+      .catch(async (err: unknown) => {
+        console.error("[ActionProcessor] lore extraction failed:", err);
+        await writeBackgroundTrace({
+          actionId,
+          campaignId,
+          sessionId,
+          taskType: "extractLore",
+          durationMs: Date.now() - startedAt,
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+          ...backgroundFlags
+        });
+      });
+    }
 
     // Tier 2: chronicler on interval or at session end (serialised per campaign)
     const interval = serverConfig.chroniclerEventInterval;
     const periodicTrigger = interval > 0 && eventCount % interval === 0 && eventCount > 0;
-    if (this.architect && (isSessionEnd || periodicTrigger)) {
-      this.runChroniclerTask(sessionId, campaignId);
+    if (serverConfig.enableChronicler && this.architect && (isSessionEnd || periodicTrigger)) {
+      this.runChroniclerTask(actionId, sessionId, campaignId);
     }
   }
 
-  private runChroniclerTask(sessionId: string, campaignId: string): void {
+  private runChroniclerTask(actionId: string, sessionId: string, campaignId: string): void {
     const prev = this.chroniclerChains.get(campaignId) ?? Promise.resolve();
 
     let resolveLock!: () => void;
@@ -589,13 +675,15 @@ export class ActionProcessor {
     this.chroniclerChains.set(campaignId, lock);
 
     prev
-      .then(() => this.executeChronicler(sessionId, campaignId))
+      .then(() => this.executeChronicler(actionId, sessionId, campaignId))
       .catch((err: unknown) => console.error("[ActionProcessor] chronicler task failed:", err))
       .finally(() => resolveLock());
   }
 
-  private async executeChronicler(sessionId: string, campaignId: string): Promise<void> {
+  private async executeChronicler(actionId: string, sessionId: string, campaignId: string): Promise<void> {
     if (!this.architect || !this.prisma) return;
+
+    const startedAt = Date.now();
 
     const session = this.callbacks.getSession(sessionId);
     if (!session) return;
@@ -620,6 +708,37 @@ export class ActionProcessor {
       if (report.errors.length > 0) {
         console.warn("[ActionProcessor] chronicler had errors:", report.errors.length);
       }
+
+      await writeBackgroundTrace({
+        actionId,
+        campaignId,
+        sessionId,
+        taskType: "chronicler",
+        durationMs: Date.now() - startedAt,
+        success: report.errors.length === 0,
+        loreEntriesScanned: allLore.length,
+        worldFactCount: Object.keys(worldView).length,
+        recentEventsCount: session.recentEvents.slice(-20).length,
+        operationsProduced: result.operations.length,
+        operationsApplied: report.applied,
+        errorsCount: report.errors.length
+      });
+      return;
     }
+
+    await writeBackgroundTrace({
+      actionId,
+      campaignId,
+      sessionId,
+      taskType: "chronicler",
+      durationMs: Date.now() - startedAt,
+      success: true,
+      loreEntriesScanned: allLore.length,
+      worldFactCount: Object.keys(worldView).length,
+      recentEventsCount: session.recentEvents.slice(-20).length,
+      operationsProduced: 0,
+      operationsApplied: 0,
+      errorsCount: 0
+    });
   }
 }

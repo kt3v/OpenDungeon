@@ -12,6 +12,9 @@ const envFlag = (key: string, fallback: boolean): boolean => {
 };
 
 export const serverConfig = {
+  enableContextRouter: envFlag("ENABLE_CONTEXT_ROUTER", false),
+  enableTurnLoreExtraction: envFlag("ENABLE_TURN_LORE_EXTRACTION", false),
+  enableChronicler: envFlag("ENABLE_CHRONICLER", true),
   /**
    * Maximum number of active (non-ended) sessions a single user account can
    * hold simultaneously, across all campaigns.

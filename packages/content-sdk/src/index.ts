@@ -449,8 +449,17 @@ export interface SettingConfig {
 export interface LoreFile {
   /** Filename (e.g., "magic-system.md") */
   file: string;
+  /** Optional stable id for routing, defaults to filename without extension */
+  id?: string;
   /** Full markdown content */
   content: string;
+  priority?: number;
+  alwaysInclude?: boolean;
+  triggers?: string[];
+  dependsOn?: string[];
+  references?: string[];
+  provides?: string[];
+  when?: string[];
 }
 
 /**

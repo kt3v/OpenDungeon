@@ -48,6 +48,10 @@ export interface DmTurnInput {
    * action and uses its deterministic result instead of the DM's narrative.
    */
   availableMechanicActions?: MechanicToolEntry[];
+  trace?: {
+    recordPhase?: (phase: string, durationMs: number) => void;
+    setMeta?: (key: string, value: unknown) => void;
+  };
 }
 
 export interface DmTurnResult {
@@ -88,6 +92,8 @@ const LLM_CONTEXT_LOG_FILE_ENV = "LLM_CONTEXT_LOG_FILE";
 const DM_WORLD_STATE_MAX_BYTES_ENV = "DM_WORLD_STATE_MAX_BYTES";
 const DM_WORLD_STATE_MAX_BYTES_DEFAULT = 2500;
 const DM_RECENT_ACTIONS_MAX = 8;
+const DM_TEMPERATURE = 0.1;
+const DM_CONTRACT_VERSION = "v2_compact_json";
 
 export class DungeonMasterRuntime {
   private readonly provider: LlmProvider;
@@ -132,27 +138,28 @@ export class DungeonMasterRuntime {
       ...(hasMechanicTools
         ? { availableMechanicActions: input.availableMechanicActions }
         : {}),
-      responseContract: {
-        message: "string (required)",
+      outputRules: [
+        "Return exactly one JSON object.",
+        "Do not wrap JSON in markdown fences.",
+        "Do not add commentary before or after JSON.",
+        "Required field: message.",
+        "Omit optional fields when unused. Do not use null."
+      ],
+      responseShape: {
+        message: "required string",
+        location: "optional string",
         ...(hasMechanicTools
           ? {
               mechanicCall: {
-                id: "id from availableMechanicActions — invoke this mechanic instead of narrating freely (omit to narrate)",
-                args: "optional object matching the action's paramSchema"
+                id: "optional string from availableMechanicActions",
+                args: "optional object"
               }
             }
           : {}),
-        toolCalls: [
-          {
-            tool: "update_world_state | set_summary | set_suggested_actions",
-            args: "tool-specific object"
-          }
-        ],
-        location: "string (optional) — player's new location if they moved",
-        worldPatch: "object (optional, ignored when mechanicCall is set) — shared world facts only",
+        worldPatch: "optional object",
         summaryPatch: {
-          shortSummary: "string (optional)",
-          latestBeat: "string (optional)"
+          shortSummary: "optional string",
+          latestBeat: "optional string"
         },
         suggestedActions: [{ id: "string", label: "string", prompt: "string" }]
       },
@@ -173,6 +180,22 @@ export class DungeonMasterRuntime {
     };
 
     const userPayloadText = JSON.stringify(userPayload);
+    input.trace?.setMeta?.("dm.systemPromptChars", systemPrompt.length);
+    input.trace?.setMeta?.("dm.userPayloadChars", userPayloadText.length);
+    input.trace?.setMeta?.("dm.contractVersion", DM_CONTRACT_VERSION);
+    input.trace?.setMeta?.("dm.temperature", DM_TEMPERATURE);
+    input.trace?.setMeta?.("dm.contextualLoreChars", (input.contextualLore ?? "").length);
+    input.trace?.setMeta?.("dm.summaryChars", (input.summary ?? "").length);
+    input.trace?.setMeta?.("dm.actionTextChars", input.actionText.length);
+    input.trace?.setMeta?.("dm.recentEventsCount", input.recentEvents.length);
+    input.trace?.setMeta?.("dm.recentActionTextsCount", recentActionTexts.length);
+    input.trace?.setMeta?.("dm.availableMechanicActionsCount", input.availableMechanicActions?.length ?? 0);
+    input.trace?.setMeta?.("dm.worldStateKeys", Object.keys(input.worldState).length);
+    input.trace?.setMeta?.("dm.worldStatePromptKeys", Object.keys(worldStateForPrompt).length);
+    input.trace?.setMeta?.(
+      "dm.worldStatePromptBytes",
+      Buffer.byteLength(safeStringify(worldStateForPrompt), "utf8")
+    );
 
     const messages: ChatMessage[] = [
       { role: "system", content: systemPrompt },
@@ -200,12 +223,23 @@ export class DungeonMasterRuntime {
     });
 
     let lastParseError: unknown;
+    const llmAttemptLatenciesMs: number[] = [];
+    let llmCallCount = 0;
+    let parseFailedAttempts = 0;
     for (let attempt = 0; attempt <= this.maxJsonRepairAttempts; attempt += 1) {
+      const llmStartedAt = Date.now();
       const response = await this.provider.createResponse({
         messages,
-        temperature: 0.4,
+        temperature: DM_TEMPERATURE,
+        trace: { setMeta: input.trace?.setMeta },
         responseFormat: { type: "json_object" }
-      });
+      } as Parameters<LlmProvider["createResponse"]>[0]);
+      llmCallCount += 1;
+      llmAttemptLatenciesMs.push(Date.now() - llmStartedAt);
+      input.trace?.setMeta?.("dm.llmCallCount", llmCallCount);
+      input.trace?.setMeta?.("dm.llmAttemptLatenciesMs", llmAttemptLatenciesMs);
+      input.trace?.setMeta?.("dm.responseChars", response.text.length);
+      input.trace?.setMeta?.("dm.responseModel", response.model);
 
       try {
         const parsed = parseDmResult(response.text, {
@@ -213,13 +247,31 @@ export class DungeonMasterRuntime {
           fallbackSummary: input.summary,
           fallbackMessage: input.actionText,
           toolPolicy,
-          defaultSuggestedActions
+          defaultSuggestedActions,
+          trace: input.trace
         });
         // Add provider information to the result
         parsed.llmProviderUsed = response.provider;
+        input.trace?.setMeta?.("dm.parseFailedAttempts", parseFailedAttempts);
+        input.trace?.setMeta?.("dm.parseRepairCount", parseFailedAttempts);
         return parsed;
       } catch (error) {
         lastParseError = error;
+        parseFailedAttempts += 1;
+        input.trace?.setMeta?.("dm.parseFailedAttempts", parseFailedAttempts);
+        input.trace?.setMeta?.("dm.parseRepairCount", parseFailedAttempts);
+        input.trace?.setMeta?.(
+          `dm.parseError.${attempt + 1}`,
+          error instanceof Error ? error.message : String(error)
+        );
+        input.trace?.setMeta?.(
+          `dm.parseErrorCategory.${attempt + 1}`,
+          classifyDmParseError(error)
+        );
+        input.trace?.setMeta?.(
+          `dm.parseFailPreview.${attempt + 1}`,
+          buildParseFailPreview(response.text)
+        );
 
         if (attempt >= this.maxJsonRepairAttempts) {
           break;
@@ -252,15 +304,17 @@ const parseDmResult = (
     fallbackMessage?: string;
     toolPolicy?: DungeonMasterToolPolicy;
     defaultSuggestedActions?: SuggestedAction[];
+    trace?: {
+      recordPhase?: (phase: string, durationMs: number) => void;
+      setMeta?: (key: string, value: unknown) => void;
+    };
   } = {}
 ): DmTurnResult => {
-  const normalized = stripCodeFence(rawText).trim();
-  let value: unknown;
-
-  try {
-    value = JSON.parse(normalized);
-  } catch {
-    throw new Error("DM response is not valid JSON");
+  const repaired = parseJsonObjectWithRecovery(rawText);
+  const value = repaired.value;
+  if (repaired.recoveryMethod) {
+    options.trace?.setMeta?.("dm.parseRecoveredLocally", true);
+    options.trace?.setMeta?.("dm.parseRecoveryMethod", repaired.recoveryMethod);
   }
 
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -350,6 +404,29 @@ const parseDmResult = (
   return result;
 };
 
+const parseJsonObjectWithRecovery = (
+  rawText: string
+): { value: unknown; recoveryMethod?: "code_fence" | "extracted_object" } => {
+  const normalized = stripCodeFence(rawText).trim();
+
+  try {
+    return normalized === rawText.trim()
+      ? { value: JSON.parse(normalized) }
+      : { value: JSON.parse(normalized), recoveryMethod: "code_fence" };
+  } catch {
+    const extracted = extractFirstJsonObject(normalized);
+    if (extracted) {
+      try {
+        return { value: JSON.parse(extracted), recoveryMethod: "extracted_object" };
+      } catch {
+        // Fall through to the canonical parse error below.
+      }
+    }
+
+    throw new Error("DM response is not valid JSON");
+  }
+};
+
 const applyToolCalls = (
   result: DmTurnResult,
   toolCalls: ReturnType<typeof normalizeDungeonMasterToolCalls>,
@@ -393,6 +470,60 @@ const stripCodeFence = (value: string): string => {
     return lines.slice(1, -1).join("\n");
   }
   return value;
+};
+
+const extractFirstJsonObject = (value: string): string | null => {
+  const start = value.indexOf("{");
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < value.length; index += 1) {
+    const char = value[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return value.slice(start, index + 1);
+      }
+    }
+  }
+
+  return null;
+};
+
+const buildParseFailPreview = (value: string): string =>
+  value.replace(/\s+/g, " ").trim().slice(0, 400);
+
+const classifyDmParseError = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("not valid JSON")) return "not_json";
+  if (message.includes("must be a JSON object")) return "not_object";
+  if (message.includes("missing required 'message'")) return "missing_message";
+  return "invalid_shape";
 };
 
 const resolveSystemPrompt = (input: {

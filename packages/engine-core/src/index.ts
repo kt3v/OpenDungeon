@@ -6,6 +6,7 @@ import type {
   CharacterInfo,
   CharacterTemplate,
   GameModule,
+  GameModuleSetting,
   Mechanic,
   PlayerAction,
   SessionEndContext,
@@ -64,6 +65,10 @@ export interface ExecuteTurnInput {
    * If empty, DM will respond in the same language as the player's input.
    */
   playerLanguage?: string;
+  trace?: {
+    recordPhase?: (phase: string, durationMs: number) => void;
+    setMeta?: (key: string, value: unknown) => void;
+  };
 }
 
 export interface CharacterCreatedInput {
@@ -101,6 +106,7 @@ export interface EndSessionInput {
 
 export interface EngineRuntimeOptions {
   provider?: LlmProvider;
+  routerProvider?: LlmProvider;
   /**
    * Whether to enable the Archivist runtime which normalizes world state
    * and summaries after each turn. When disabled, only DM result is used.
@@ -126,11 +132,12 @@ export class EngineRuntime {
     this.mechanics = gameModule.mechanics;
 
     const provider = options.provider ?? createProviderFromEnv();
+    const routerProvider = options.routerProvider ?? provider;
     this.dmRuntime = new DungeonMasterRuntime({
       provider,
       moduleConfig: gameModule.dm
     });
-    this.contextRouterRuntime = new ContextRouterRuntime(provider);
+    this.contextRouterRuntime = new ContextRouterRuntime(routerProvider);
 
     // Check both options and env var for archivist (default: true)
     const envEnableArchivist = process.env.ENABLE_ARCHIVIST;
@@ -254,8 +261,10 @@ export class EngineRuntime {
 
     const mechanicAction = this.resolveMechanicAction(action, ctx);
     if (mechanicAction) {
+      input.trace?.setMeta?.("engine.usedMechanicDirectly", true);
       result = await mechanicAction();
     } else {
+      input.trace?.setMeta?.("engine.usedMechanicDirectly", false);
       result = await this.runDm(input, ctx);
     }
 
@@ -352,12 +361,15 @@ export class EngineRuntime {
     input: ExecuteTurnInput,
     ctx: ActionContext
   ): Promise<ActionResult> {
+    const promptStartedAt = Date.now();
     const systemPrompt = await this.buildSystemPrompt(
       ctx.worldState,
       input.actionText,
       input.campaignTitle,
-      input.playerLanguage
+      input.playerLanguage,
+      input.trace
     );
+    input.trace?.recordPhase?.("engine.buildSystemPrompt", Date.now() - promptStartedAt);
 
     const availableMechanicActions = this.mechanics.flatMap((m) =>
       Object.entries(m.actions ?? {}).map(([actionId, actionDef]) => ({
@@ -368,6 +380,7 @@ export class EngineRuntime {
     );
 
     try {
+      const dmStartedAt = Date.now();
       const dmResult = await this.dmRuntime.runTurn({
         campaignId: input.campaignId,
         sessionId: input.sessionId,
@@ -383,14 +396,18 @@ export class EngineRuntime {
         availableMechanicActions: availableMechanicActions.length > 0
           ? availableMechanicActions
           : undefined,
+        trace: input.trace,
         moduleConfig: {
           ...this.gameModule.dm,
           systemPrompt
         }
       });
+      input.trace?.recordPhase?.("engine.dm.total", Date.now() - dmStartedAt);
+      input.trace?.setMeta?.("dm.provider", dmResult.llmProviderUsed ?? "unknown");
 
       // If DM chose to delegate to a mechanic, route there deterministically
       if (dmResult.mechanicCall) {
+        input.trace?.setMeta?.("engine.dmMechanicCall", dmResult.mechanicCall.id);
         const routed = this.findMechanicActionById(dmResult.mechanicCall.id, ctx);
         if (routed) return routed(); // runMechanicAction sets handledByMechanic: true
         // Unknown mechanic id — fall through to DM narrative
@@ -407,36 +424,24 @@ export class EngineRuntime {
 
       // Skip archivist if disabled
       if (!this.enableArchivist || !this.archivistRuntime) {
+        input.trace?.setMeta?.("archivist.enabled", false);
         return dmNarrativeResult;
       }
 
-      // Run archivist in background - don't block the user response
-      // Archivist result will be applied asynchronously via hooks if available
-      const archivistPromise = this.archivistRuntime.runTurn({
+      input.trace?.setMeta?.("archivist.enabled", true);
+
+      // Run archivist fully in background so it never blocks the player turn.
+      void this.archivistRuntime.runTurn({
         actionText: input.actionText,
         worldState: input.worldState,
         dmResult: dmNarrativeResult
+      }).catch((error) => {
+        console.warn("[EngineRuntime] Archivist background run failed:", error);
       });
 
-      // Race archivist against a timeout - we want to return to user quickly
-      const archivistResult = await Promise.race([
-        archivistPromise,
-        new Promise<ArchivistTurnResult>((resolve) =>
-          setTimeout(() => {
-            console.log(`[EngineRuntime] Archivist timed out, using DM result only`);
-            resolve({});
-          }, 5000) // 5 second timeout for archivist
-        )
-      ]);
-
-      return {
-        ...dmNarrativeResult,
-        worldPatch: {
-          ...(dmNarrativeResult.worldPatch ?? {}),
-          ...(archivistResult.worldPatch ?? {})
-        },
-        summaryPatch: archivistResult.summaryPatch ?? dmNarrativeResult.summaryPatch
-      };
+      input.trace?.setMeta?.("archivist.mode", "background");
+      input.trace?.setMeta?.("archivist.deferred", true);
+      return dmNarrativeResult;
     } catch {
       // Graceful fallback if DM fails
       return {
@@ -458,12 +463,18 @@ export class EngineRuntime {
     worldState: Record<string, unknown>,
     actionText: string,
     campaignTitle?: string,
-    playerLanguage?: string
+    playerLanguage?: string,
+    trace?: ExecuteTurnInput["trace"]
   ): Promise<string> {
     const { dm, setting } = this.gameModule;
+    const routerEnabled = this.isContextRouterEnabled();
 
     // Section 1: Setting / World Bible
-    const settingSection = renderGameModuleSetting(setting);
+    const settingSection = renderGameModuleSetting(
+      routerEnabled && setting?.loreFiles?.length
+        ? ({ config: setting.config } satisfies GameModuleSetting)
+        : setting
+    );
 
     // Section 2: Base system prompt
     let base: string;
@@ -483,7 +494,12 @@ export class EngineRuntime {
     const narratorSection = this.buildNarratorSection(dm.narratorStyle);
 
     // Section 3: Context modules routed per turn
-    const routedModules = await this.resolveRoutedContextModules({ actionText, worldState });
+    const routedModules = await this.resolveRoutedContextModules({
+      actionText,
+      worldState,
+      trace,
+      setting
+    });
     const modulesSection = routedModules.length > 0
       ? [
           "## Active Context Modules",
@@ -510,17 +526,29 @@ export class EngineRuntime {
     if (modulesSection) parts.push(modulesSection);
     if (activeReferencesSection) parts.push(activeReferencesSection);
 
+    trace?.setMeta?.("prompt.settingSectionChars", settingSection.length);
+    trace?.setMeta?.("prompt.modulesSectionChars", modulesSection.length);
+    trace?.setMeta?.("prompt.activeReferencesChars", activeReferencesSection.length);
+    trace?.setMeta?.("prompt.narratorSectionChars", narratorSection.length);
+    trace?.setMeta?.("prompt.fullSystemPromptChars", parts.join("\n\n").length);
+
     return parts.join("\n\n");
   }
 
   private async resolveRoutedContextModules(input: {
     actionText: string;
     worldState: Record<string, unknown>;
+    trace?: ExecuteTurnInput["trace"];
+    setting?: GameModuleSetting;
   }): Promise<RouterContextModule[]> {
-    const modules = this.getConfiguredContextModules();
+    const modules = [
+      ...this.getConfiguredContextModules(),
+      ...this.getLoreRouterModules(input.setting)
+    ];
     if (modules.length === 0) return [];
     if (!this.isContextRouterEnabled()) return [];
 
+    const startedAt = Date.now();
     const selection = await this.contextRouterRuntime.selectModules({
       actionText: input.actionText,
       worldState: input.worldState,
@@ -528,7 +556,61 @@ export class EngineRuntime {
       config: this.getContextRouterConfig()
     });
 
+    input.trace?.recordPhase?.("engine.contextRouter.total", Date.now() - startedAt);
+    input.trace?.setMeta?.("router.enabled", true);
+    input.trace?.setMeta?.("router.forceLlmSelection", this.getContextRouterConfig()?.forceLlmSelection ?? false);
+    input.trace?.setMeta?.("router.availableModules", modules.length);
+    input.trace?.setMeta?.("router.baselineIds", selection.diagnostics.baselineIds);
+    input.trace?.setMeta?.("router.baselineApproxTokens", selection.diagnostics.baselineApproxTokens);
+    input.trace?.setMeta?.("router.prefCandidateIds", selection.diagnostics.prefCandidateIds);
+    input.trace?.setMeta?.("router.prefCandidateCount", selection.diagnostics.prefCandidateIds.length);
+    input.trace?.setMeta?.("router.heuristicSelectedIds", selection.diagnostics.heuristicSelectedIds ?? []);
+    input.trace?.setMeta?.("router.heuristicSelectedCount", selection.diagnostics.heuristicSelectedIds?.length ?? 0);
+    input.trace?.setMeta?.("router.llmSelectedIds", selection.diagnostics.llmSelectedIds);
+    input.trace?.setMeta?.("router.llmSelectedCount", selection.diagnostics.llmSelectedIds.length);
+    input.trace?.setMeta?.("router.skippedLlmReason", selection.diagnostics.skippedLlmReason ?? null);
+    input.trace?.setMeta?.("router.selectedCount", selection.selectedModules.length);
+    input.trace?.setMeta?.("router.selectedIds", selection.selectedIds);
+    input.trace?.setMeta?.(
+      "router.selectedApproxTokens",
+      selection.selectedModules.reduce((sum, module) => sum + Math.ceil(module.content.length / 4), 0)
+    );
+
     return selection.selectedModules;
+  }
+
+  private getLoreRouterModules(setting?: GameModuleSetting): RouterContextModule[] {
+    const loreFiles = setting?.loreFiles ?? [];
+    return loreFiles.map((loreFile, index) => {
+      const metadata = loreFile as typeof loreFile & {
+        id?: string;
+        priority?: number;
+        alwaysInclude?: boolean;
+        triggers?: string[];
+        dependsOn?: string[];
+        references?: string[];
+        provides?: string[];
+        when?: string[];
+      };
+
+      return {
+      id: `lore:${metadata.id ?? loreFile.file.replace(/\.md$/, "")}`,
+      source: "lore",
+      file: loreFile.file,
+      content: loreFile.content,
+      priority: metadata.priority ?? (40 - index),
+      alwaysInclude: metadata.alwaysInclude,
+      triggers: metadata.triggers ?? loreFile.file
+        .replace(/\.md$/, "")
+        .split(/[^a-zA-Z0-9]+/)
+        .map((token) => token.trim().toLowerCase())
+        .filter((token) => token.length >= 2),
+      dependsOn: metadata.dependsOn,
+      references: metadata.references,
+      provides: metadata.provides,
+      when: metadata.when ?? ["lore"]
+    };
+    });
   }
 
   private buildActiveReferencesSection(modules: RouterContextModule[]): string {
@@ -599,8 +681,13 @@ export class EngineRuntime {
 
   private isContextRouterEnabled(): boolean {
     const envValue = process.env.DM_CONTEXT_ROUTER_ENABLED;
-    if (envValue != null) {
+    if (envValue != null && envValue.trim() !== "") {
       return ["1", "true", "yes", "on"].includes(envValue.trim().toLowerCase());
+    }
+
+    const compatibilityFlag = process.env.ENABLE_CONTEXT_ROUTER;
+    if (compatibilityFlag != null && compatibilityFlag.trim() !== "") {
+      return ["1", "true", "yes", "on"].includes(compatibilityFlag.trim().toLowerCase());
     }
 
     const config = this.getContextRouterConfig();

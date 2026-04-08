@@ -5,10 +5,15 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface ChatRequestTrace {
+  setMeta?: (key: string, value: unknown) => void;
+}
+
 export interface ChatRequest {
   messages: ChatMessage[];
   temperature?: number;
   maxTokens?: number;
+  trace?: ChatRequestTrace;
   responseFormat?:
     | {
         type: "json_schema";
@@ -502,3 +507,16 @@ export const createArchitectProviderFromEnv = (env: NodeJS.ProcessEnv = process.
   });
 };
 
+export const createRouterProviderFromEnv = (env: NodeJS.ProcessEnv = process.env): LlmProvider => {
+  const baseConfig = getProviderRuntimeConfigFromEnv(env);
+  return createProvider({
+    ...baseConfig,
+    provider: (env.LLM_ROUTER_PROVIDER as ProviderFactoryInput["provider"] | undefined) ?? baseConfig.provider,
+    baseUrl: env.LLM_ROUTER_BASE_URL ?? baseConfig.baseUrl,
+    apiKey: env.LLM_ROUTER_API_KEY ?? baseConfig.apiKey,
+    model: env.LLM_ROUTER_MODEL ?? baseConfig.model,
+    endpointPath: env.LLM_ROUTER_ENDPOINT_PATH ?? baseConfig.endpointPath,
+    anthropicVersion: env.LLM_ROUTER_ANTHROPIC_VERSION ?? baseConfig.anthropicVersion,
+    extraHeaders: parseJsonHeaders(env.LLM_ROUTER_EXTRA_HEADERS_JSON) ?? baseConfig.extraHeaders
+  });
+};
