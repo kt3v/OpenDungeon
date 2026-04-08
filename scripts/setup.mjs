@@ -301,6 +301,10 @@ const main = async () => {
 
   // DATABASE SETUP (skip if game-only or web-only mode - only run for full setup)
   if (setupMode.full) {
+    // Re-read env after module setup to get updated GAME_MODULE_PATH and WEB_MODULE_PATH
+    const { map: updatedMap } = readEnvLocal();
+    const updatedEnv = Object.fromEntries(updatedMap.entries());
+
     // Determine ideal ports
     const webPort = await findAvailablePort(Number(currentEnv.WEB_PORT || exampleEnv.WEB_PORT || 3000));
     const gatewayPort = await findAvailablePort(Number(currentEnv.GATEWAY_PORT || exampleEnv.GATEWAY_PORT || 3001), [webPort]);
@@ -308,6 +312,7 @@ const main = async () => {
     const config = {
       ...exampleEnv, // Start with defaults
       ...currentEnv, // Overlay existing user keys (API keys, etc.)
+      ...updatedEnv, // Include GAME_MODULE_PATH and WEB_MODULE_PATH set by module setup above
       // Force override infrastructural keys
       DATABASE_URL: currentEnv.DATABASE_URL || exampleEnv.DATABASE_URL,
       WEB_PORT: webPort.toString(),
