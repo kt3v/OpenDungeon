@@ -6,11 +6,11 @@ import { classifyProviderError, LlmProviderError } from "./index.js";
 // ---------------------------------------------------------------------------
 
 export interface GatewayLLMConfig {
-  /** Maximum requests per minute (default: 60) */
+  /** Maximum requests per minute per provider (default: 60) */
   rpm: number;
   /** Rolling window for rate limiting in ms (default: 60000) */
   rpmWindowMs: number;
-  /** Maximum concurrent requests (default: 5) */
+  /** Maximum concurrent requests per provider (default: 5) */
   maxConcurrent: number;
   /** Maximum retry attempts for failed requests (default: 3) */
   maxRetries: number;
@@ -38,16 +38,20 @@ export interface CircuitBreakerConfig {
 export interface FallbackConfig {
   /** Fallback provider instance */
   provider: LlmProvider;
-  /** Error categories that trigger fallback (default: all retryable) */
-  onErrorCategories: LlmProviderErrorCategory[];
+  /** Rate limit config for fallback (uses same defaults as primary if not specified) */
+  rpm?: number;
+  rpmWindowMs?: number;
+  maxConcurrent?: number;
 }
 
 export interface LLMMetrics {
   totalRequests: number;
   successfulRequests: number;
   failedRequests: number;
+  primaryRequests: number;
   fallbackRequests: number;
-  rateLimitedRequests: number;
+  rateLimitedPrimary: number;
+  rateLimitedFallback: number;
   queueDepth: number;
   averageLatencyMs: number;
   circuitState: CircuitState;
@@ -78,19 +82,18 @@ class TokenBucketRateLimiter {
   }
 
   /**
-   * Try to consume tokens. Returns wait time in ms if not enough tokens.
+   * Try to consume token immediately. Returns true if allowed.
+   * No waiting - immediate check.
    */
-  tryConsume(tokens = 1): { allowed: boolean; waitMs: number } {
+  tryConsume(tokens = 1): boolean {
     this.refill();
 
     if (this.tokens >= tokens) {
       this.tokens -= tokens;
-      return { allowed: true, waitMs: 0 };
+      return true;
     }
 
-    const needed = tokens - this.tokens;
-    const waitMs = Math.ceil((needed / this.refillRate) * 1000);
-    return { allowed: false, waitMs };
+    return false;
   }
 
   private refill(): void {
@@ -204,6 +207,19 @@ class CircuitBreaker {
 }
 
 // ---------------------------------------------------------------------------
+// Provider Wrapper with Rate Limiting and Circuit Breaker
+// ---------------------------------------------------------------------------
+
+interface ProviderSlot {
+  name: string;
+  provider: LlmProvider;
+  rateLimiter: TokenBucketRateLimiter;
+  semaphore: Semaphore;
+  circuitBreaker: CircuitBreaker;
+  isFallback: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Metrics Collector
 // ---------------------------------------------------------------------------
 
@@ -211,8 +227,10 @@ class MetricsCollector {
   private totalRequests = 0;
   private successfulRequests = 0;
   private failedRequests = 0;
+  private primaryRequests = 0;
   private fallbackRequests = 0;
-  private rateLimitedRequests = 0;
+  private rateLimitedPrimary = 0;
+  private rateLimitedFallback = 0;
   private totalLatencyMs = 0;
   private totalInputTokens = 0;
   private totalOutputTokens = 0;
@@ -230,12 +248,20 @@ class MetricsCollector {
     this.failedRequests++;
   }
 
+  recordPrimary(): void {
+    this.primaryRequests++;
+  }
+
   recordFallback(): void {
     this.fallbackRequests++;
   }
 
-  recordRateLimited(): void {
-    this.rateLimitedRequests++;
+  recordRateLimited(isFallback: boolean): void {
+    if (isFallback) {
+      this.rateLimitedFallback++;
+    } else {
+      this.rateLimitedPrimary++;
+    }
   }
 
   recordTokens(inputTokens: number, outputTokens: number): void {
@@ -243,21 +269,28 @@ class MetricsCollector {
     this.totalOutputTokens += outputTokens;
   }
 
-  getMetrics(currentConcurrency: number, queueDepth: number, circuitState: CircuitState): LLMMetrics {
+  getMetrics(primarySlot: ProviderSlot, fallbackSlot?: ProviderSlot): LLMMetrics {
     const avgLatency = this.successfulRequests > 0
       ? this.totalLatencyMs / this.successfulRequests
       : 0;
+
+    const totalConcurrency = primarySlot.semaphore.available +
+      (fallbackSlot?.semaphore.available ?? 0);
+    const maxConcurrency = primarySlot.semaphore.available + primarySlot.semaphore.queueLength +
+      (fallbackSlot ? fallbackSlot.semaphore.available + fallbackSlot.semaphore.queueLength : 0);
 
     return {
       totalRequests: this.totalRequests,
       successfulRequests: this.successfulRequests,
       failedRequests: this.failedRequests,
+      primaryRequests: this.primaryRequests,
       fallbackRequests: this.fallbackRequests,
-      rateLimitedRequests: this.rateLimitedRequests,
-      queueDepth,
+      rateLimitedPrimary: this.rateLimitedPrimary,
+      rateLimitedFallback: this.rateLimitedFallback,
+      queueDepth: primarySlot.semaphore.queueLength + (fallbackSlot?.semaphore.queueLength ?? 0),
       averageLatencyMs: Math.round(avgLatency),
-      circuitState,
-      currentConcurrency,
+      circuitState: primarySlot.circuitBreaker.getState(),
+      currentConcurrency: maxConcurrency - totalConcurrency,
       totalInputTokens: this.totalInputTokens,
       totalOutputTokens: this.totalOutputTokens
     };
@@ -272,15 +305,13 @@ export class GatewayLLMProvider implements LlmProvider {
   readonly name: string;
   readonly model: string;
 
-  private readonly primaryProvider: LlmProvider;
+  private readonly primarySlot: ProviderSlot;
+  private readonly fallbackSlot?: ProviderSlot;
   private readonly resolvedConfig: GatewayLLMConfig;
-  private readonly rateLimiter: TokenBucketRateLimiter;
-  private readonly semaphore: Semaphore;
-  private readonly circuitBreaker: CircuitBreaker;
   private readonly metrics: MetricsCollector;
+  private lastSuccessfulProvider: "primary" | "fallback" = "primary";
 
   constructor(primaryProvider: LlmProvider, config: Partial<GatewayLLMConfig> = {}) {
-    this.primaryProvider = primaryProvider;
     this.name = `gateway-${primaryProvider.name}`;
     this.model = primaryProvider.model;
 
@@ -307,30 +338,42 @@ export class GatewayLLMProvider implements LlmProvider {
       }
     };
 
-    this.rateLimiter = new TokenBucketRateLimiter(this.resolvedConfig.rpm, this.resolvedConfig.rpmWindowMs);
-    this.semaphore = new Semaphore(this.resolvedConfig.maxConcurrent);
-    this.circuitBreaker = new CircuitBreaker(this.resolvedConfig.circuitBreaker);
+    // Create primary provider slot
+    this.primarySlot = {
+      name: primaryProvider.name,
+      provider: primaryProvider,
+      rateLimiter: new TokenBucketRateLimiter(this.resolvedConfig.rpm, this.resolvedConfig.rpmWindowMs),
+      semaphore: new Semaphore(this.resolvedConfig.maxConcurrent),
+      circuitBreaker: new CircuitBreaker(this.resolvedConfig.circuitBreaker),
+      isFallback: false
+    };
+
+    // Create fallback provider slot if configured
+    if (this.resolvedConfig.fallback) {
+      const fallbackRpm = this.resolvedConfig.fallback.rpm ?? this.resolvedConfig.rpm;
+      const fallbackWindowMs = this.resolvedConfig.fallback.rpmWindowMs ?? this.resolvedConfig.rpmWindowMs;
+      const fallbackMaxConcurrent = this.resolvedConfig.fallback.maxConcurrent ?? this.resolvedConfig.maxConcurrent;
+
+      this.fallbackSlot = {
+        name: this.resolvedConfig.fallback.provider.name,
+        provider: this.resolvedConfig.fallback.provider,
+        rateLimiter: new TokenBucketRateLimiter(fallbackRpm, fallbackWindowMs),
+        semaphore: new Semaphore(fallbackMaxConcurrent),
+        circuitBreaker: new CircuitBreaker(this.resolvedConfig.circuitBreaker),
+        isFallback: true
+      };
+    }
+
     this.metrics = new MetricsCollector();
   }
 
   async createResponse(request: ChatRequest): Promise<ChatResponse> {
     this.metrics.recordRequest();
 
-    // Wait for rate limiter
-    const rateLimitResult = await this.waitForRateLimit();
-    if (!rateLimitResult.allowed) {
-      throw new LlmProviderError("Rate limit exceeded - request dropped after waiting", {
-        status: 429
-      });
-    }
-
-    // Wait for concurrency slot
-    await this.semaphore.acquire();
-
     const startTime = Date.now();
 
     try {
-      const response = await this.executeWithRetry(request);
+      const response = await this.executeWithRoundRobin(request);
       const latency = Date.now() - startTime;
       this.metrics.recordSuccess(latency);
       this.emitMetrics();
@@ -339,8 +382,6 @@ export class GatewayLLMProvider implements LlmProvider {
       this.metrics.recordFailure();
       this.emitMetrics();
       throw error;
-    } finally {
-      this.semaphore.release();
     }
   }
 
@@ -348,55 +389,99 @@ export class GatewayLLMProvider implements LlmProvider {
    * Get current metrics snapshot
    */
   getMetrics(): LLMMetrics {
-    return this.metrics.getMetrics(
-      this.resolvedConfig.maxConcurrent - this.semaphore.available,
-      this.semaphore.queueLength,
-      this.circuitBreaker.getState()
-    );
+    return this.metrics.getMetrics(this.primarySlot, this.fallbackSlot);
   }
 
   /**
-   * Reset circuit breaker to closed state
+   * Reset circuit breaker to closed state for both providers
    */
   resetCircuitBreaker(): void {
-    this.circuitBreaker.reset();
+    this.primarySlot.circuitBreaker.reset();
+    this.fallbackSlot?.circuitBreaker.reset();
   }
 
-  private async waitForRateLimit(): Promise<{ allowed: boolean }> {
-    const maxWaitMs = 30000; // Max 30 seconds wait
-    const startTime = Date.now();
+  /**
+   * Round-robin execution: try providers in order, skip rate-limited ones
+   */
+  private async executeWithRoundRobin(request: ChatRequest): Promise<ChatResponse> {
+    // Determine which provider to try first based on last successful
+    const providers: ProviderSlot[] = this.lastSuccessfulProvider === "primary"
+      ? [this.primarySlot, ...(this.fallbackSlot ? [this.fallbackSlot] : [])]
+      : this.fallbackSlot
+        ? [this.fallbackSlot, this.primarySlot]
+        : [this.primarySlot];
 
-    while (Date.now() - startTime < maxWaitMs) {
-      const result = this.rateLimiter.tryConsume(1);
-      if (result.allowed) {
-        return { allowed: true };
+    const errors: Error[] = [];
+
+    for (const slot of providers) {
+      // Check rate limit immediately (no waiting)
+      if (!slot.rateLimiter.tryConsume(1)) {
+        this.metrics.recordRateLimited(slot.isFallback);
+        errors.push(new LlmProviderError(`Rate limit exceeded for ${slot.name}`, { status: 429 }));
+        continue; // Try next provider
       }
 
-      this.metrics.recordRateLimited();
-
-      // Wait before trying again
-      await sleep(Math.min(result.waitMs, 1000));
+      // Try to execute on this provider
+      try {
+        const response = await this.executeOnProvider(request, slot);
+        this.lastSuccessfulProvider = slot.isFallback ? "fallback" : "primary";
+        if (slot.isFallback) {
+          this.metrics.recordFallback();
+        } else {
+          this.metrics.recordPrimary();
+        }
+        return response;
+      } catch (error) {
+        // If it's a rate limit from the provider itself (not our rate limiter),
+        // record it and try next provider
+        if (error instanceof LlmProviderError && error.status === 429) {
+          this.metrics.recordRateLimited(slot.isFallback);
+        }
+        errors.push(error as Error);
+      }
     }
 
-    return { allowed: false };
+    // All providers exhausted
+    throw new LlmProviderError(
+      `All providers failed: ${errors.map(e => e.message).join("; ")}`,
+      { status: 503 }
+    );
   }
 
-  private async executeWithRetry(request: ChatRequest): Promise<ChatResponse> {
+  private async executeOnProvider(request: ChatRequest, slot: ProviderSlot): Promise<ChatResponse> {
+    // Check circuit breaker
+    if (!slot.circuitBreaker.canExecute()) {
+      throw new LlmProviderError(`Circuit breaker is open for ${slot.name}`, { status: 503 });
+    }
+
+    // Wait for concurrency slot
+    await slot.semaphore.acquire();
+
+    try {
+      const response = await this.executeWithRetry(request, slot);
+      slot.circuitBreaker.recordSuccess();
+      this.recordTokenUsage(response);
+      return response;
+    } catch (error) {
+      slot.circuitBreaker.recordFailure();
+      throw error;
+    } finally {
+      slot.semaphore.release();
+    }
+  }
+
+  private async executeWithRetry(request: ChatRequest, slot: ProviderSlot): Promise<ChatResponse> {
     const maxRetries = this.resolvedConfig.maxRetries;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const response = await this.executeWithCircuitBreaker(request);
+        const response = await slot.provider.createResponse(request);
         return response;
       } catch (error) {
         const classified = classifyProviderError(error);
 
         // Don't retry non-retryable errors
         if (!classified.retryable || attempt >= maxRetries) {
-          // Try fallback if configured
-          if (this.resolvedConfig.fallback && this.shouldUseFallback(classified.category)) {
-            return await this.executeFallback(request);
-          }
           throw error;
         }
 
@@ -407,22 +492,6 @@ export class GatewayLLMProvider implements LlmProvider {
     }
 
     throw new LlmProviderError("Max retries exceeded");
-  }
-
-  private async executeWithCircuitBreaker(request: ChatRequest): Promise<ChatResponse> {
-    if (!this.circuitBreaker.canExecute()) {
-      throw new LlmProviderError("Circuit breaker is open", { status: 503 });
-    }
-
-    try {
-      const response = await this.primaryProvider.createResponse(request);
-      this.circuitBreaker.recordSuccess();
-      this.recordTokenUsage(response);
-      return response;
-    } catch (error) {
-      this.circuitBreaker.recordFailure();
-      throw error;
-    }
   }
 
   private recordTokenUsage(response: ChatResponse): void {
@@ -438,24 +507,6 @@ export class GatewayLLMProvider implements LlmProvider {
     if (inputTokens > 0 || outputTokens > 0) {
       this.metrics.recordTokens(inputTokens, outputTokens);
     }
-  }
-
-  private async executeFallback(request: ChatRequest): Promise<ChatResponse> {
-    if (!this.resolvedConfig.fallback) {
-      throw new LlmProviderError("No fallback provider configured");
-    }
-
-    this.metrics.recordFallback();
-    const response = await this.resolvedConfig.fallback.provider.createResponse(request);
-    this.recordTokenUsage(response);
-    return response;
-  }
-
-  private shouldUseFallback(category: LlmProviderErrorCategory): boolean {
-    if (!this.resolvedConfig.fallback) return false;
-
-    const fallbackCategories = this.resolvedConfig.fallback.onErrorCategories;
-    return fallbackCategories.includes(category);
   }
 
   private calculateBackoff(attempt: number): number {
@@ -495,11 +546,13 @@ export interface GatewayProviderFactoryInput {
   primary: LlmProvider;
   /** Optional fallback provider */
   fallback?: LlmProvider;
-  /** Error categories that trigger fallback (default: all) */
-  fallbackOnErrors?: LlmProviderErrorCategory[];
-  /** Rate limit: requests per minute (default: 60) */
+  /** Rate limit: requests per minute for primary (default: 60) */
   rpm?: number;
-  /** Max concurrent requests (default: 5) */
+  /** Rate limit: requests per minute for fallback (default: same as primary) */
+  fallbackRpm?: number;
+  /** Rolling window for rate limiting in ms (default: 60000) */
+  rpmWindowMs?: number;
+  /** Max concurrent requests per provider (default: 5) */
   maxConcurrent?: number;
   /** Max retry attempts (default: 3) */
   maxRetries?: number;
@@ -514,17 +567,15 @@ export interface GatewayProviderFactoryInput {
 }
 
 /**
- * Create a production-ready gateway LLM provider with all safeguards
+ * Create a production-ready gateway LLM provider with round-robin fail-over
  */
 export function createGatewayProvider(input: GatewayProviderFactoryInput): GatewayLLMProvider {
   const fallbackConfig: FallbackConfig | undefined = input.fallback
     ? {
         provider: input.fallback,
-        onErrorCategories: input.fallbackOnErrors ?? [
-          "rate-limit",
-          "network",
-          "unknown"
-        ]
+        rpm: input.fallbackRpm ?? input.rpm,
+        rpmWindowMs: input.rpmWindowMs,
+        maxConcurrent: input.maxConcurrent
       }
     : undefined;
 
@@ -559,7 +610,9 @@ export function createGatewayProviderFromEnv(
   const fallbackConfig: FallbackConfig | undefined = fallbackProvider
     ? {
         provider: fallbackProvider,
-        onErrorCategories: ["rate-limit", "network", "unknown"]
+        rpm: parseIntOrDefault(env.GATEWAY_LLM_FALLBACK_RPM, parseIntOrDefault(env.GATEWAY_LLM_RPM, 60)),
+        rpmWindowMs: parseIntOrDefault(env.GATEWAY_LLM_RPM_WINDOW_MS, 60000),
+        maxConcurrent: parseIntOrDefault(env.GATEWAY_LLM_MAX_CONCURRENT, 5)
       }
     : undefined;
 
