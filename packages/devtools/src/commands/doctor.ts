@@ -20,6 +20,12 @@ const ENV_DEFINITIONS: Record<string, EnvDefinition> = {
   WEB_PORT: { required: true, default: "3000", section: "Core" },
   GATEWAY_PORT: { required: true, default: "3001", section: "Core" },
   NEXT_PUBLIC_GATEWAY_URL: { required: true, default: "http://localhost:3001", section: "Core" },
+  CAN_BASIC_ACCOUNT_CREATE_CAMPAIGNS: {
+    required: false,
+    default: "true",
+    section: "Core",
+    description: "Allow non-admin accounts to create campaigns"
+  },
 
   // LLM Provider vars
   LLM_PROVIDER: { required: false, default: "mock", section: "LLM" },
