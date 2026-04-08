@@ -57,4 +57,4 @@ CLAUDE.md
 games/
 
 # Web UI modules (per-game, user-customizable)
-web/
+/web/
