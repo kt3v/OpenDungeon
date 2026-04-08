@@ -34,7 +34,42 @@ type SessionEvent = {
   createdAt: string;
 };
 
-// ── Components ─────────────────────────────────────────────────────────────────
+// ── Shared Header Component ────────────────────────────────────────────────────
+
+export const AppHeader: FC = () => (
+  <div className="app-header">
+    <img src="/logo.png" alt="OpenDungeon" className="app-header-logo" />
+    <span className="app-header-title">OpenDungeon</span>
+    <span className="app-header-tagline">AI-Powered RPG Engine</span>
+    <a
+      href="https://github.com/kt3v/OpenDungeon"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="app-header-link"
+    >
+      GitHub
+    </a>
+  </div>
+);
+
+// ── Shared Screen Header Component ─────────────────────────────────────────────
+
+export const ScreenHeader: FC<{
+  onBack: () => void;
+  title?: string;
+  children?: React.ReactNode;
+}> = ({ onBack, title, children }) => (
+  <div className="screen-header">
+    <div className="screen-header-left">
+      <button className="od-btn od-btn-sm od-btn-ghost back-btn" onClick={onBack}>← Back</button>
+      {title ? <h2 className="screen-title">{title}</h2> : children}
+    </div>
+  </div>
+);
+
+// ── Screen Components ──────────────────────────────────────────────────────────
+
+import { useState, useEffect } from "react";
 
 export const AuthScreen: FC<{
   email: string;
@@ -60,15 +95,25 @@ export const AuthScreen: FC<{
   onRegister,
 }) => (
   <div className="auth-root">
+    <div className="auth-topbar">
+      <a
+        href="https://github.com/kt3v/OpenDungeon"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="auth-topbar-link"
+      >
+        GitHub
+      </a>
+    </div>
     <div className="auth-card">
-      <div className="auth-logo">⚔️</div>
-      <h1 className="auth-title">OpenDungeon</h1>
-      <div className="auth-subtitle">AI-Powered RPG Engine</div>
+      <div className="auth-brand">
+        <img src="/logo.png" alt="OpenDungeon" className="auth-logo" />
+        <h1 className="auth-title">OpenDungeon</h1>
+        <div className="auth-subtitle">AI-Powered RPG Engine</div>
+      </div>
 
-      {/* Welcome Message Block */}
       <div className="auth-welcome">
-        <p>Welcome, adventurer! OpenDungeon is an AI-powered RPG engine where you can create and play immersive text-based adventures.</p>
-        <p>Create your account to begin your journey, or sign in to continue your adventure.</p>
+        <p>Create an account to start, or sign in to continue your journey.</p>
       </div>
 
       <div className="auth-fields">
@@ -125,19 +170,6 @@ export const AuthScreen: FC<{
           Create Account
         </button>
       </div>
-
-      {/* Footer Links */}
-      <div className="auth-footer-links">
-        <a
-          href="https://github.com/IndieHippie/OpenDungeon"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="footer-link"
-        >
-          <span className="footer-link-icon">★</span>
-          GitHub
-        </a>
-      </div>
     </div>
   </div>
 );
@@ -166,25 +198,19 @@ export const CampaignScreen: FC<{
   onJoinDiscoverable,
   onJoin,
   onBack,
-}) => (
-  <div className="screen-root">
-    <div className="screen-header">
-      <div className="screen-header-left">
-        <button className="od-btn od-btn-sm od-btn-ghost back-btn" onClick={onBack}>← Back</button>
-        <h2 className="screen-title">Campaigns</h2>
-      </div>
-    </div>
+}) => {
+  const [showCreate, setShowCreate] = useState(false);
 
-    <div className="list-area">
-      <div className="create-row">
-        <input
-          className="od-input"
-          value={newCampaignTitle}
-          onChange={(e) => setNewCampaignTitle(e.target.value)}
-          placeholder="New campaign title"
-        />
-        <button className="od-btn od-btn-primary" onClick={onCreateCampaign}>Create</button>
-      </div>
+  const handleCreate = () => {
+    onCreateCampaign();
+    setShowCreate(false);
+  };
+
+  return (
+  <div className="screen-container">
+    <AppHeader />
+    <div className="screen-root">
+      <ScreenHeader onBack={onBack} title="Campaigns" />
 
       <div className="list-area">
         {campaigns.length === 0 && discoverableCampaigns.length === 0 && (
@@ -200,7 +226,7 @@ export const CampaignScreen: FC<{
                 className={`list-item ${selectedCampaignId === c.id ? "list-item--selected" : ""}`}
                 onClick={() => setSelectedCampaignId(c.id)}
               >
-                <span className="list-item-icon">⚔️</span>
+                <span className="list-item-icon">◆</span>
                 <div className="list-item-col">
                   <span className="list-item-label">{c.title}</span>
                   <span className="list-item-id">{c.id}</span>
@@ -213,7 +239,7 @@ export const CampaignScreen: FC<{
                   }}
                   title="Delete"
                 >
-                  🗑
+                  ×
                 </button>
               </div>
             ))}
@@ -229,7 +255,7 @@ export const CampaignScreen: FC<{
                 className="list-item list-item--discoverable"
                 onClick={() => onJoinDiscoverable(c.id)}
               >
-                <span className="list-item-icon">🌍</span>
+                <span className="list-item-icon">◎</span>
                 <div className="list-item-col">
                   <span className="list-item-label">{c.title}</span>
                   <span className="list-item-meta">{c.membersCount} members</span>
@@ -238,25 +264,55 @@ export const CampaignScreen: FC<{
             ))}
           </>
         )}
-      </div>
-    </div>
 
-    <div className="selection-footer">
-      <div className="selection-info">
-        <span className="selection-name">{selectedCampaignId ? campaigns.find((c) => c.id === selectedCampaignId)?.title || "Selected" : "No campaign selected"}</span>
+        {!showCreate ? (
+          <button className="od-btn od-btn-ghost" onClick={() => setShowCreate(true)}>
+            + Create New Campaign
+          </button>
+        ) : (
+          <div className="create-character-form">
+            <div className="field-group">
+              <label className="field-label">Campaign Title</label>
+              <input
+                className="od-input"
+                value={newCampaignTitle}
+                onChange={(e) => setNewCampaignTitle(e.target.value)}
+                placeholder="Enter campaign title"
+                autoFocus
+              />
+            </div>
+            <div className="footer-actions" style={{ justifyContent: "flex-end" }}>
+              <button className="od-btn od-btn-ghost" onClick={() => setShowCreate(false)}>Cancel</button>
+              <button
+                className="od-btn od-btn-primary"
+                disabled={!newCampaignTitle.trim()}
+                onClick={handleCreate}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        )}
       </div>
-      <div className="footer-actions">
-        <button
-          className="od-btn od-btn-primary"
-          disabled={!selectedCampaignId}
-          onClick={onJoin}
-        >
-          Join →
-        </button>
+
+      <div className="selection-footer">
+        <div className="selection-info">
+          <span className="selection-name">{selectedCampaignId ? campaigns.find((c) => c.id === selectedCampaignId)?.title || "Selected" : "No campaign selected"}</span>
+        </div>
+        <div className="footer-actions">
+          <button
+            className="od-btn od-btn-primary"
+            disabled={!selectedCampaignId}
+            onClick={onJoin}
+          >
+            Join →
+          </button>
+        </div>
       </div>
     </div>
   </div>
-);
+  );
+};
 
 export const SessionScreen: FC<{
   sessions: Session[];
@@ -291,141 +347,137 @@ export const SessionScreen: FC<{
   const endedSessions = sessions.filter((s) => s.status === "ended");
 
   return (
-    <div className="screen-root">
-      <div className="screen-header">
-        <div className="screen-header-left">
-          <button className="od-btn od-btn-sm od-btn-ghost back-btn" onClick={onBack}>← Back</button>
-          <h2 className="screen-title">Characters</h2>
-        </div>
-      </div>
+    <div className="screen-container">
+      <AppHeader />
+      <div className="screen-root">
+        <ScreenHeader onBack={onBack} title="Characters" />
 
-      <div className="list-area">
-        {activeSessions.length === 0 && endedSessions.length === 0 && (
-          <div className="list-empty">No characters yet. Create one to begin your adventure.</div>
-        )}
+        <div className="list-area">
+          {activeSessions.length === 0 && endedSessions.length === 0 && (
+            <div className="list-empty">No characters yet. Create one to begin your adventure.</div>
+          )}
 
-        {activeSessions.length > 0 && (
-          <>
-            <div className="list-section-label">Active Characters</div>
-            {activeSessions.map((s) => (
-              <div
-                key={s.id}
-                className={`list-item ${selectedSessionId === s.id ? "list-item--selected" : ""}`}
-                onClick={() => setSelectedSessionId(s.id)}
-              >
-                <span className="list-item-icon">👤</span>
-                <div className="list-item-col">
-                  <span className="list-item-label">{s.character.name}</span>
-                  <span className="list-item-meta">Level {s.character.level} {s.character.className} • {s.character.hp} HP</span>
-                </div>
-                <span className="session-badge session-badge--active">Active</span>
-              </div>
-            ))}
-          </>
-        )}
-
-        {endedSessions.length > 0 && (
-          <>
-            <div className="list-section-label">Previous Characters</div>
-            {endedSessions.map((s) => (
-              <div
-                key={s.id}
-                className={`list-item ${selectedSessionId === s.id ? "list-item--selected" : ""}`}
-                onClick={() => setSelectedSessionId(s.id)}
-              >
-                <span className="list-item-icon">💀</span>
-                <div className="list-item-col">
-                  <span className="list-item-label">{s.character.name}</span>
-                  <span className="list-item-meta">Level {s.character.level} {s.character.className}</span>
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-
-        {!showCreate ? (
-          <button className="od-btn od-btn-ghost" onClick={() => setShowCreate(true)}>
-            + Create New Character
-          </button>
-        ) : (
-          <div className="create-character-form">
-            <div className="field-group">
-              <label className="field-label">Name</label>
-              <input
-                className="od-input"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Your hero's name"
-                autoFocus
-              />
-            </div>
-
-            <div className="field-group">
-              <label className="field-label">Class</label>
-              <div className="class-chips">
-                {availableClasses.map((cls) => (
-                  <button
-                    key={cls}
-                    className={`class-chip ${selectedClass === cls ? "class-chip--selected" : ""}`}
-                    onClick={() => setSelectedClass(cls)}
-                  >
-                    {cls}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="footer-actions" style={{ justifyContent: "flex-end" }}>
-              <button className="od-btn od-btn-ghost" onClick={() => setShowCreate(false)}>Cancel</button>
-              <button
-                className="od-btn od-btn-primary"
-                disabled={!newName || !selectedClass}
-                onClick={() => {
-                  onStartSession(newName, selectedClass);
-                  setShowCreate(false);
-                  setNewName("");
-                }}
-              >
-                Create
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="selection-footer">
-        <div className="selection-info">
-          {selectedSessionId ? (
+          {activeSessions.length > 0 && (
             <>
-              <span className="selection-name">{sessions.find((s) => s.id === selectedSessionId)?.character.name}</span>
-              <span className="selection-chars">
-                {sessions.find((s) => s.id === selectedSessionId)?.status === "active"
-                  ? "Ready to play"
-                  : "Session ended"}
-              </span>
+              <div className="list-section-label">Active Characters</div>
+              {activeSessions.map((s) => (
+                <div
+                  key={s.id}
+                  className={`list-item ${selectedSessionId === s.id ? "list-item--selected" : ""}`}
+                  onClick={() => setSelectedSessionId(s.id)}
+                >
+                  <span className="list-item-icon">●</span>
+                  <div className="list-item-col">
+                    <span className="list-item-label">{s.character.name}</span>
+                    <span className="list-item-meta">Level {s.character.level} {s.character.className} • {s.character.hp} HP</span>
+                  </div>
+                  <span className="session-badge session-badge--active">Active</span>
+                </div>
+              ))}
             </>
+          )}
+
+          {endedSessions.length > 0 && (
+            <>
+              <div className="list-section-label">Previous Characters</div>
+              {endedSessions.map((s) => (
+                <div
+                  key={s.id}
+                  className={`list-item ${selectedSessionId === s.id ? "list-item--selected" : ""}`}
+                  onClick={() => setSelectedSessionId(s.id)}
+                >
+                  <span className="list-item-icon">○</span>
+                  <div className="list-item-col">
+                    <span className="list-item-label">{s.character.name}</span>
+                    <span className="list-item-meta">Level {s.character.level} {s.character.className}</span>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {!showCreate ? (
+            <button className="od-btn od-btn-ghost" onClick={() => setShowCreate(true)}>
+              + Create New Character
+            </button>
           ) : (
-            <span className="selection-name">No character selected</span>
+            <div className="create-character-form">
+              <div className="field-group">
+                <label className="field-label">Name</label>
+                <input
+                  className="od-input"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Enter character name"
+                  autoFocus
+                />
+              </div>
+
+              <div className="field-group">
+                <label className="field-label">Class</label>
+                <div className="class-chips">
+                  {availableClasses.map((cls) => (
+                    <button
+                      key={cls}
+                      className={`class-chip ${selectedClass === cls ? "class-chip--selected" : ""}`}
+                      onClick={() => setSelectedClass(cls)}
+                    >
+                      {cls}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="footer-actions" style={{ justifyContent: "flex-end" }}>
+                <button className="od-btn od-btn-ghost" onClick={() => setShowCreate(false)}>Cancel</button>
+                <button
+                  className="od-btn od-btn-primary"
+                  disabled={!newName || !selectedClass}
+                  onClick={() => {
+                    onStartSession(newName, selectedClass);
+                    setShowCreate(false);
+                    setNewName("");
+                  }}
+                >
+                  Create
+                </button>
+              </div>
+            </div>
           )}
         </div>
-        <div className="footer-actions">
-          {selectedSessionId && sessions.find((s) => s.id === selectedSessionId)?.status === "active" && (
-            <button className="od-btn od-btn-ghost" onClick={onEndSession}>End Session</button>
-          )}
-          <button
-            className="od-btn od-btn-primary"
-            disabled={!selectedSessionId}
-            onClick={onContinue}
-          >
-            Play →
-          </button>
+
+        <div className="selection-footer">
+          <div className="selection-info">
+            {selectedSessionId ? (
+              <>
+                <span className="selection-name">{sessions.find((s) => s.id === selectedSessionId)?.character.name}</span>
+                <span className="selection-chars">
+                  {sessions.find((s) => s.id === selectedSessionId)?.status === "active"
+                    ? "Ready to play"
+                    : "Session ended"}
+                </span>
+              </>
+            ) : (
+              <span className="selection-name">No character selected</span>
+            )}
+          </div>
+          <div className="footer-actions">
+            {selectedSessionId && sessions.find((s) => s.id === selectedSessionId)?.status === "active" && (
+              <button className="od-btn od-btn-ghost" onClick={onEndSession}>End Session</button>
+            )}
+            <button
+              className="od-btn od-btn-primary"
+              disabled={!selectedSessionId}
+              onClick={onContinue}
+            >
+              Play →
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 };
-
-import { useState, useEffect } from "react";
 
 export const ActionsScreen: FC<{
   actionText: string;
@@ -462,82 +514,82 @@ export const ActionsScreen: FC<{
   };
 
   return (
-    <div className="actions-root">
-      <div className="screen-header actions-topbar">
-        <div className="screen-header-left">
-          <button className="od-btn od-btn-sm od-btn-ghost back-btn" onClick={onBack}>← Back</button>
+    <div className="screen-container">
+      <AppHeader />
+      <div className="actions-root">
+        <ScreenHeader onBack={onBack}>
           <div>
             <div style={{ fontWeight: 500 }}>{sessionCharacter.name}</div>
             <div style={{ fontSize: 13, color: "var(--text-dim)" }}>Level {sessionCharacter.level} {sessionCharacter.className}</div>
           </div>
-        </div>
-      </div>
+        </ScreenHeader>
 
-      {resourceSchemas.length > 0 && (
-        <div className="resource-indicators">
-          {resourceSchemas.map((schema) => {
-            const value = getResourceValue(schema);
-            return (
-              <div key={schema.id} className="resource-indicator">
-                <span className="resource-label">{schema.label}</span>
-                <span className="resource-value">{String(value)}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="chronicle-wrap">
-        <div className="chronicle-card">
-          <div className="chronicle-label">The Story So Far</div>
-          {currentMessage ? (
-            <div className="chronicle-text markdown-content">
-              <ReactMarkdown>{currentMessage}</ReactMarkdown>
-            </div>
-          ) : (
-            <div className="chronicle-text" style={{ color: "var(--text-dim)" }}>Your adventure begins...</div>
-          )}
-          {sessionSummary && (
-            <div className="chronicle-summary">
-              <strong>Summary:</strong> {sessionSummary}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {suggestedActions.length > 0 && (
-        <div className="suggestions-wrap">
-          {suggestedActions.map((action) => (
-            <button
-              key={action.id}
-              className="suggestion-chip"
-              onClick={() => onSendAction(action.prompt)}
-              disabled={isActionPending}
-            >
-              {action.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {events.length > 1 && (
-        <details className="history-details">
-          <summary className="history-summary">Show History ({events.length} events)</summary>
-          <div className="history-list">
-            {events.slice(0, -1).reverse().map((event) => (
-              <div key={event.id} className="history-item">
-                <div className="history-action">▸ {event.actionText}</div>
-                <div className="history-msg markdown-content">
-                  <ReactMarkdown>{event.message}</ReactMarkdown>
+        {resourceSchemas.length > 0 && (
+          <div className="resource-indicators">
+            {resourceSchemas.map((schema) => {
+              const value = getResourceValue(schema);
+              return (
+                <div key={schema.id} className="resource-indicator">
+                  <span className="resource-label">{schema.label}</span>
+                  <span className="resource-value">{String(value)}</span>
                 </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="actions-scroll-area">
+          <div className="chronicle-wrap">
+            <div className="chronicle-card">
+              <div className="chronicle-label">The Story So Far</div>
+              {currentMessage ? (
+                <div className="chronicle-text markdown-content">
+                  <ReactMarkdown>{currentMessage}</ReactMarkdown>
+                </div>
+              ) : (
+                <div className="chronicle-text" style={{ color: "var(--text-dim)" }}>Your adventure begins...</div>
+              )}
+              {sessionSummary && (
+                <div className="chronicle-summary">
+                  <strong>Summary:</strong> {sessionSummary}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {events.length > 1 && (
+            <details className="history-details">
+              <summary className="history-summary">Show History ({events.length} events)</summary>
+              <div className="history-list">
+                {events.slice(0, -1).reverse().map((event) => (
+                  <div key={event.id} className="history-item">
+                    <div className="history-action">▸ {event.actionText}</div>
+                    <div className="history-msg markdown-content">
+                      <ReactMarkdown>{event.message}</ReactMarkdown>
+                    </div>
+                  </div>
+                ))}
               </div>
+            </details>
+          )}
+        </div>
+
+        {suggestedActions.length > 0 && (
+          <div className="suggestions-wrap">
+            {suggestedActions.map((action) => (
+              <button
+                key={action.id}
+                className="suggestion-chip"
+                onClick={() => onSendAction(action.prompt)}
+                disabled={isActionPending}
+              >
+                {action.label}
+              </button>
             ))}
           </div>
-        </details>
-      )}
+        )}
 
-      <div className="action-dock">
-        <div className="action-dock-inner">
+        <div className="action-footer">
           <input
             className="od-input action-input"
             value={actionText}
@@ -558,19 +610,6 @@ export const ActionsScreen: FC<{
             {isActionPending ? "..." : "Send"}
           </button>
         </div>
-      </div>
-
-      {/* Footer Links */}
-      <div className="footer-links">
-        <a
-          href="https://github.com/IndieHippie/OpenDungeon"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="footer-link"
-        >
-          <span className="footer-link-icon">★</span>
-          GitHub
-        </a>
       </div>
     </div>
   );
