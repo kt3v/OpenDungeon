@@ -324,11 +324,11 @@ const main = async () => {
       GATEWAY_LLM_MAX_CONCURRENT: currentEnv.GATEWAY_LLM_MAX_CONCURRENT ?? exampleEnv.GATEWAY_LLM_MAX_CONCURRENT ?? "5",
     };
 
-    const newEnvContent = Object.entries(config)
-      .map(([key, value]) => `${key}=${value}`)
-      .join("\n");
-
-    writeFileSync(envLocalPath, newEnvContent);
+    const { lines, map } = readEnvLocal();
+    for (const [key, value] of Object.entries(config)) {
+      map.set(key, value);
+    }
+    writeEnvLocal(lines, map);
     process.stdout.write(`Updated .env.local: Web on ${webPort}, Gateway on ${gatewayPort}, IP: ${localIp}\n`);
 
     run("docker", ["compose", "up", "-d", "db"]);
