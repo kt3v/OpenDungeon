@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { readEnvLocal, getEnvValue } from "./env-reader.js";
 
 export type ServiceName = "gateway" | "web";
@@ -99,13 +99,26 @@ export async function startService(
     PORT: port,
   };
 
+  const webModulePath = getEnvValue(envState, "WEB_MODULE_PATH");
+  const resolvedWebModulePath = webModulePath ? resolve(projectRoot, webModulePath) : null;
+  const hasStandaloneWebModule =
+    service === "web"
+    && resolvedWebModulePath !== null
+    && existsSync(resolvedWebModulePath)
+    && existsSync(join(resolvedWebModulePath, "package.json"));
+
+  const commandArgs = hasStandaloneWebModule
+    ? ["dev"]
+    : ["--filter", `@opendungeon/${service}`, "dev"];
+  const commandCwd = hasStandaloneWebModule ? resolvedWebModulePath! : projectRoot;
+
   const logFd = openSync(logPath, "a");
 
   const child = spawn(
     "pnpm",
-    ["--filter", `@opendungeon/${service}`, "dev"],
+    commandArgs,
     {
-      cwd: projectRoot,
+      cwd: commandCwd,
       detached: true,
       stdio: ["ignore", logFd, logFd],
       env: childEnv,

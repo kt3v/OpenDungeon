@@ -100,12 +100,16 @@ See [Creating a Game](docs/game-dev/creating-a-game.md) and [Mechanics Guide](do
 
 ```bash
 pnpm od setup                               First-time setup
+pnpm od setup web                           Scaffold/update only the web module path
 pnpm od start [full|gateway|web]            Start services
+pnpm od drain                               Graceful shutdown prep (see below)
 pnpm od stop                                Stop services
 pnpm od status                              Show running services and config
 pnpm od logs [gateway|web] [-f]             View service logs
 pnpm od realtime                            Stream gateway logs in real-time
 pnpm od configure [llm|ports|module]        Change settings
+pnpm od doctor env [--fix]                  Validate env (incl. WEB_MODULE_PATH)
+pnpm od web sync [--force]                  Sync apps/web template into WEB_MODULE_PATH
 pnpm od reset                               Wipe all local state (DB + logs)
 
 pnpm od architect analyze --campaign <id>   Find unhandled intents, suggest mechanics
@@ -113,6 +117,39 @@ pnpm od architect scaffold --module <dir>   AI-generate module content from sett
 pnpm od create-module <dir>                 Scaffold a new game module
 pnpm od validate-module <dir>               Check module JSON/frontmatter integrity
 ```
+
+### Web UI customization flow
+
+- `apps/web` is the template source.
+- `WEB_MODULE_PATH` points to your standalone web UI copy (usually `./web/<name>`).
+- `pnpm od setup` and `od setup web` scaffold the full web app into `WEB_MODULE_PATH` and run `pnpm install` there automatically.
+- `pnpm od start web` runs the app from `WEB_MODULE_PATH` when it contains a `package.json`.
+- `pnpm od web sync` pulls template updates from `apps/web` into your module without overwriting changed files.
+- `pnpmod web sync --force` also overwrites changed files.
+
+### Updating the server without dropping players
+
+Killing the server while players are mid-turn interrupts their LLM calls and leaves actions uncommitted. Use `od drain` to shut down cleanly:
+
+```bash
+# 1. Enter drain mode — the server stops accepting new actions.
+#    Players who try to act see: "The server is preparing for a brief restart."
+#    Players already waiting for a DM response keep waiting and get their answer.
+pnpm od drain
+
+# od drain polls until all in-flight actions complete, then prints:
+#   ✓ All in-flight actions completed.
+#   ✓ Server is ready to stop.
+
+# 2. Now it's safe to stop, update, and restart.
+pnpm od stop
+git pull
+pnpm install
+pnpm build
+pnpm od start
+```
+
+`od drain` signals the gateway via `SIGUSR2` (no auth token required). It times out after 5 minutes if an LLM call hangs.
 
 ---
 

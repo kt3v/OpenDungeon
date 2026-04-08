@@ -179,6 +179,17 @@ const checkEnv = async (rootDir: string, fix: boolean): Promise<void> => {
     }
   }
 
+  const webModulePath = localEnv.WEB_MODULE_PATH;
+  if (webModulePath) {
+    const resolvedWebModulePath = resolve(rootDir, webModulePath);
+    if (!existsSync(resolvedWebModulePath)) {
+      printWarning(`WEB_MODULE_PATH target does not exist: ${resolvedWebModulePath}`);
+      hasErrors = true;
+    } else if (!existsSync(resolve(resolvedWebModulePath, "package.json"))) {
+      printWarning(`WEB_MODULE_PATH does not look like a standalone web module (missing package.json): ${resolvedWebModulePath}`);
+    }
+  }
+
   // Write changes if fixing
   if (fix && added.length > 0) {
     writeEnvLocal(rootDir, envState);

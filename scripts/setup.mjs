@@ -184,6 +184,17 @@ const writeEnvLocal = (lines, map) => {
   writeFileSync(resolve(rootDir, ".env.local"), out, "utf8");
 };
 
+const WEB_COPY_SKIP = new Set(["node_modules", ".turbo", "dist", "tsconfig.tsbuildinfo"]);
+
+const shouldCopyWebPath = (src) => {
+  const normalized = src.replace(/\\/g, "/");
+  const parts = normalized.split("/");
+  for (const part of parts) {
+    if (WEB_COPY_SKIP.has(part)) return false;
+  }
+  return true;
+};
+
 const parseSetupArgs = (argv) => {
   const mode = {
     webOnly: false,
@@ -282,14 +293,32 @@ const main = async () => {
   // WEB UI SETUP (skip if game-only mode)
   if (!setupMode.gameOnly) {
     const webModulePath = resolve(rootDir, "web", webModuleDir);
-    const defaultUiPath = resolve(rootDir, "apps/web/src/default");
+    const defaultUiPath = resolve(rootDir, "apps/web");
+    let webModuleCreated = false;
+    let webModuleUpgraded = false;
 
     if (!existsSync(webModulePath) && existsSync(defaultUiPath)) {
       process.stdout.write(`\nScaffolding web UI module to ./web/${webModuleDir}...\n`);
       mkdirSync(webModulePath, { recursive: true });
-      cpSync(defaultUiPath, webModulePath, { recursive: true });
+      cpSync(defaultUiPath, webModulePath, { recursive: true, filter: shouldCopyWebPath });
+      webModuleCreated = true;
     } else if (existsSync(webModulePath)) {
       process.stdout.write(`\nFolder ./web/${webModuleDir} already exists. Using it.\n`);
+      const webPackageJsonPath = resolve(webModulePath, "package.json");
+      if (!existsSync(webPackageJsonPath) && existsSync(defaultUiPath)) {
+        process.stdout.write(`Upgrading legacy web module scaffold in ./web/${webModuleDir}...\n`);
+        cpSync(defaultUiPath, webModulePath, { recursive: true, filter: shouldCopyWebPath });
+        webModuleUpgraded = true;
+      }
+    }
+
+    const webPackageJsonPath = resolve(webModulePath, "package.json");
+    const webNodeModulesPath = resolve(webModulePath, "node_modules");
+    const shouldInstallWebDeps =
+      existsSync(webPackageJsonPath) && (webModuleCreated || webModuleUpgraded || !existsSync(webNodeModulesPath));
+    if (shouldInstallWebDeps) {
+      process.stdout.write(`Installing web UI dependencies in ./web/${webModuleDir}...\n`);
+      run("pnpm", ["install", "--ignore-workspace"], { cwd: webModulePath });
     }
 
     // Update env with web module path

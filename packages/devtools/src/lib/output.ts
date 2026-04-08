@@ -69,6 +69,7 @@ export function printHelp(): void {
   println("  " + color("od realtime", c.bold) + "                   Follow gateway logs in realtime mode");
   println("  " + color("od configure", c.bold) + " [llm|ports|module]  Change settings");
   println("  " + color("od doctor", c.bold) + "  env [--fix]          Check/fix environment variables");
+  println("  " + color("od web", c.bold) + "  sync [--force]       Sync apps/web template into WEB_MODULE_PATH");
   println("  " + color("od reset", c.bold) + "                      Wipe all local data and start fresh");
   println();
   println(color("  Developer tools:", c.dim));

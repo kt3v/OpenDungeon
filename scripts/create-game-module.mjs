@@ -1,4 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { basename, relative, resolve } from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
@@ -607,9 +608,21 @@ const writeEnvLocal = (lines, map) => {
   writeFileSync(resolve(rootDir, ".env.local"), out, "utf8");
 };
 
+const runCommand = (command, args, options = {}) => {
+  const result = spawnSync(command, args, {
+    stdio: "inherit",
+    shell: false,
+    ...options,
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`Command failed: ${command} ${args.join(" ")}`);
+  }
+};
+
 // ── Web module scaffold ────────────────────────────────────────────────────────
 
-const SKIP_ON_COPY = new Set(["node_modules", ".next", ".turbo", "tsconfig.tsbuildinfo"]);
+const SKIP_ON_COPY = new Set(["node_modules", ".next", ".turbo", "dist", "tsconfig.tsbuildinfo"]);
 
 const copyFilter = (src) => {
   const name = basename(src);
@@ -617,20 +630,20 @@ const copyFilter = (src) => {
 };
 
 const createWebModule = ({ absWebDir, dryRun }) => {
-  const defaultUiPath = resolve(rootDir, "apps/web/src/default");
+  const defaultUiPath = resolve(rootDir, "apps/web");
 
   if (!existsSync(defaultUiPath)) {
-    process.stdout.write(`  Warning: apps/web/src/default not found, skipping web module.\n`);
+    process.stdout.write(`  Warning: apps/web not found, skipping web module.\n`);
     return;
   }
 
   if (dryRun) {
-    process.stdout.write(`Dry run: would copy apps/web/src/default → ${absWebDir}\n`);
+    process.stdout.write(`Dry run: would copy apps/web → ${absWebDir}\n`);
     return;
   }
 
   mkdirSync(absWebDir, { recursive: true });
-  cpSync(defaultUiPath, absWebDir, { recursive: true });
+  cpSync(defaultUiPath, absWebDir, { recursive: true, filter: copyFilter });
 };
 
 const run = async () => {
@@ -674,6 +687,14 @@ const run = async () => {
 
   if (options.web) {
     createWebModule({ absWebDir, dryRun: options.dryRun });
+    if (!options.dryRun) {
+      const webPackageJsonPath = resolve(absWebDir, "package.json");
+      const webNodeModulesPath = resolve(absWebDir, "node_modules");
+      if (existsSync(webPackageJsonPath) && !existsSync(webNodeModulesPath)) {
+        process.stdout.write(`Installing web UI dependencies in ${absWebDir}...\n`);
+        runCommand("pnpm", ["install", "--ignore-workspace"], { cwd: absWebDir });
+      }
+    }
   }
 
   process.stdout.write(`\nGame module scaffold ready: ${absTargetDir}\n`);
