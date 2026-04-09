@@ -83,7 +83,7 @@ async function runConfigurePorts(root: string): Promise<void> {
     const localIp = getLocalIp();
     setEnvValue(envState, "WEB_PORT", newWeb);
     setEnvValue(envState, "GATEWAY_PORT", newGateway);
-    setEnvValue(envState, "NEXT_PUBLIC_GATEWAY_URL", `http://${localIp}:${newGateway}`);
+    setEnvValue(envState, "VITE_GATEWAY_URL", `http://${localIp}:${newGateway}`);
     writeEnvLocal(root, envState);
 
     println();

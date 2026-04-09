@@ -99,6 +99,15 @@ export async function startService(
     PORT: port,
   };
 
+  if (service === "web") {
+    const gatewayUrl =
+      getEnvValue(envState, "VITE_GATEWAY_URL")
+      ?? getEnvValue(envState, "NEXT_PUBLIC_GATEWAY_URL");
+    if (gatewayUrl) {
+      childEnv.VITE_GATEWAY_URL = gatewayUrl;
+    }
+  }
+
   const webModulePath = getEnvValue(envState, "WEB_MODULE_PATH");
   const resolvedWebModulePath = webModulePath ? resolve(projectRoot, webModulePath) : null;
   const hasStandaloneWebModule =
@@ -112,7 +121,7 @@ export async function startService(
     : ["--filter", `@opendungeon/${service}`, "dev"];
   const commandCwd = hasStandaloneWebModule ? resolvedWebModulePath! : projectRoot;
 
-  const logFd = openSync(logPath, "a");
+  const logFd = openSync(logPath, "w");
 
   const child = spawn(
     "pnpm",

@@ -44,8 +44,7 @@ type SessionEvent = {
 
 type ScreenId = "auth" | "campaign" | "session" | "actions";
 
-const baseUrl = (import.meta.env.NEXT_PUBLIC_GATEWAY_URL as string | undefined)
-  ?? (import.meta.env.VITE_GATEWAY_URL as string | undefined)
+const baseUrl = (import.meta.env.VITE_GATEWAY_URL as string | undefined)
   ?? "http://localhost:3001";
 
 // ── Component ────────────────────────────────────────────────────────────────

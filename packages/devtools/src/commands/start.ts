@@ -55,10 +55,23 @@ function printUrls(projectRoot: string): void {
   const env = readEnvLocal(projectRoot);
   const webPort = getEnvValue(env, "WEB_PORT") ?? "3000";
   const gatewayPort = getEnvValue(env, "GATEWAY_PORT") ?? "3001";
+  const gatewayUrl =
+    getEnvValue(env, "VITE_GATEWAY_URL")
+    ?? getEnvValue(env, "NEXT_PUBLIC_GATEWAY_URL")
+    ?? `http://localhost:${gatewayPort}`;
+  const host = getHostFromUrl(gatewayUrl) ?? "localhost";
   println(
-    color("  Web UI:  ", c.dim) + color(`http://localhost:${webPort}`, c.cyan)
+    color("  Web UI:  ", c.dim) + color(`http://${host}:${webPort}`, c.cyan)
   );
   println(
-    color("  Gateway: ", c.dim) + color(`http://localhost:${gatewayPort}`, c.cyan)
+    color("  Gateway: ", c.dim) + color(`http://${host}:${gatewayPort}`, c.cyan)
   );
+}
+
+function getHostFromUrl(value: string): string | null {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return null;
+  }
 }

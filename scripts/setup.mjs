@@ -346,7 +346,7 @@ const main = async () => {
       DATABASE_URL: currentEnv.DATABASE_URL || exampleEnv.DATABASE_URL,
       WEB_PORT: webPort.toString(),
       GATEWAY_PORT: gatewayPort.toString(),
-      NEXT_PUBLIC_GATEWAY_URL: `http://${localIp}:${gatewayPort}`,
+      VITE_GATEWAY_URL: `http://${localIp}:${gatewayPort}`,
       // Performance settings (preserve existing or use defaults)
       ENABLE_ARCHIVIST: currentEnv.ENABLE_ARCHIVIST ?? exampleEnv.ENABLE_ARCHIVIST ?? "true",
       ENABLE_TRACE_LOGS: currentEnv.ENABLE_TRACE_LOGS ?? exampleEnv.ENABLE_TRACE_LOGS ?? "false",

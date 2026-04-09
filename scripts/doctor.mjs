@@ -127,7 +127,7 @@ const ENV_DEFINITIONS = {
   WEB_MODULE_PATH: { required: true, default: "./web/game-default", section: "Core" },
   WEB_PORT: { required: true, default: "3000", section: "Core" },
   GATEWAY_PORT: { required: true, default: "3001", section: "Core" },
-  NEXT_PUBLIC_GATEWAY_URL: { required: true, default: "http://localhost:3001", section: "Core" },
+  VITE_GATEWAY_URL: { required: true, default: "http://localhost:3001", section: "Core" },
   CAN_BASIC_ACCOUNT_CREATE_CAMPAIGNS: { required: false, default: "true", section: "Core", description: "Allow non-admin accounts to create campaigns" },
 
   // LLM Provider vars
@@ -268,7 +268,7 @@ const main = async () => {
   let hasHardFailures = false;
 
   const localIp = getLocalIp();
-  messages.push(info("Local IP", `${localIp} (use this for NEXT_PUBLIC_GATEWAY_URL if accessing from other devices)`));
+  messages.push(info("Local IP", `${localIp} (use this for VITE_GATEWAY_URL if accessing from other devices)`));
 
   const nodeVersion = process.versions.node;
   const nodeMajor = Number(nodeVersion.split(".")[0] || "0");
