@@ -90,8 +90,8 @@ const DEFAULT_SYSTEM_PROMPT = [
 
 const LLM_CONTEXT_LOG_FILE_ENV = "LLM_CONTEXT_LOG_FILE";
 const DM_WORLD_STATE_MAX_BYTES_ENV = "DM_WORLD_STATE_MAX_BYTES";
-const DM_WORLD_STATE_MAX_BYTES_DEFAULT = 2500;
-const DM_RECENT_ACTIONS_MAX = 8;
+const DM_WORLD_STATE_MAX_BYTES_DEFAULT = 1600;
+const DM_RECENT_ACTIONS_MAX = 4;
 const DM_TEMPERATURE = 0.1;
 const DM_CONTRACT_VERSION = "v2_compact_json";
 
@@ -134,48 +134,41 @@ export class DungeonMasterRuntime {
     const recentActionTexts = buildRecentActionTexts(input.recentEvents);
 
     const userPayload = {
-      task: "Resolve one player action for a dungeon session.",
+      task: "Resolve one player action.",
       ...(hasMechanicTools
         ? { availableMechanicActions: input.availableMechanicActions }
         : {}),
       outputRules: [
-        "Return exactly one JSON object.",
-        "Do not wrap JSON in markdown fences.",
-        "Do not add commentary before or after JSON.",
-        "Required field: message.",
-        "Omit optional fields when unused. Do not use null."
+        "Return one JSON object only.",
+        "No markdown or extra text.",
+        "message is required.",
+        "Omit unused optional fields; no nulls."
       ],
       responseShape: {
-        message: "required string",
-        location: "optional string",
+        message: "string",
+        location: "string",
         ...(hasMechanicTools
           ? {
               mechanicCall: {
-                id: "optional string from availableMechanicActions",
-                args: "optional object"
+                id: "string from availableMechanicActions",
+                args: "object"
               }
             }
           : {}),
-        worldPatch: "optional object",
+        worldPatch: "object",
         summaryPatch: {
-          shortSummary: "optional string",
-          latestBeat: "optional string"
+          shortSummary: "string",
+          latestBeat: "string"
         },
         suggestedActions: [{ id: "string", label: "string", prompt: "string" }]
       },
       context: {
-        campaignId: input.campaignId,
-        sessionId: input.sessionId,
-        campaignTitle: input.campaignTitle,
-        playerId: input.playerId,
         actionText: input.actionText,
         location: input.location,
-        summary: input.summary ?? "",
-        contextualLore: input.contextualLore ?? "",
         worldState: worldStateForPrompt,
-        recentActionTexts,
-        recentActionsCount: recentActionTexts.length,
-        totalRecentEventsSeen: input.recentEvents.length
+        ...(input.summary?.trim() ? { summary: input.summary.trim() } : {}),
+        ...(input.contextualLore?.trim() ? { contextualLore: input.contextualLore.trim() } : {}),
+        ...(recentActionTexts.length > 0 ? { recentActionTexts } : {})
       }
     };
 

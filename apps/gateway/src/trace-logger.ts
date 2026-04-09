@@ -30,8 +30,9 @@ const appendJsonLine = async (filePath: string, payload: JsonRecord): Promise<vo
 };
 
 export const traceConfig = {
-  enableTurnTrace: envFlag("ENABLE_TURN_TRACE", true),
-  enableBackgroundTrace: envFlag("ENABLE_BACKGROUND_TRACE", true),
+  enableTraceLogs: envFlag("ENABLE_TRACE_LOGS", false),
+  enableTurnTrace: envFlag("ENABLE_TURN_TRACE", envFlag("ENABLE_TRACE_LOGS", false)),
+  enableBackgroundTrace: envFlag("ENABLE_BACKGROUND_TRACE", envFlag("ENABLE_TRACE_LOGS", false)),
   turnTraceFile: resolveLogPath("TURN_TRACE_LOG_FILE", DEFAULT_TURN_TRACE_FILE),
   backgroundTraceFile: resolveLogPath("BACKGROUND_TRACE_LOG_FILE", DEFAULT_BACKGROUND_TRACE_FILE)
 } as const;

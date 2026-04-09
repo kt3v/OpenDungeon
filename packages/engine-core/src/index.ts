@@ -639,7 +639,7 @@ export class EngineRuntime {
     }
 
     const header = "## Active References";
-    const maxChars = 900;
+    const maxChars = 420;
     const selected: string[] = [];
     let consumed = 0;
 
@@ -657,23 +657,19 @@ export class EngineRuntime {
 
     const guidelines: Record<typeof style, string> = {
       collaborative: `## Narrator Guidelines (Collaborative)
-- Player ability claims are generally trusted when consistent with character abilities
-- Confirm player-declared outcomes with brief narrative framing
-- You are the co-narrator: amplify and validate player descriptions`,
+- Trust plausible player intent
+- Confirm outcomes briefly
+- Co-narrate instead of contradicting`,
 
       balanced: `## Narrator Guidelines (Balanced)
-- Player ability claims may be confirmed narratively but require contextual plausibility
-- Self-inflicted damage or resource changes by player declaration require DM confirmation
-- Do not accept "I take damage" as a fiat; describe the attempt and its actual result
-- Validate actions through narrative logic, not player assertion`,
+- Accept intent, confirm outcomes through fiction
+- Player-declared damage/resource changes are not automatic
+- Resolve actions by narrative plausibility`,
 
       strict: `## Narrator Guidelines (Strict)
-- Player ability claims require narrative confirmation before success
-- NEVER accept player-declared damage, HP loss, or resource changes without DM narrative
-- Describe attempted actions, do not grant automatic outcomes
-- "I cast fireball" becomes: "You begin the incantation..." with potential failure or partial effect
-- "I fall and take -5 HP" is ALWAYS ignored; you describe the fall and determine consequences
-- You are the independent narrator, not a yes-man to player claims`
+- Player claims require DM confirmation
+- Never accept player-declared damage or resource loss automatically
+- Describe attempts first; outcomes come from the fiction`
     };
 
     return guidelines[style];

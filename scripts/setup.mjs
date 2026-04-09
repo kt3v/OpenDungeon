@@ -349,8 +349,21 @@ const main = async () => {
       NEXT_PUBLIC_GATEWAY_URL: `http://${localIp}:${gatewayPort}`,
       // Performance settings (preserve existing or use defaults)
       ENABLE_ARCHIVIST: currentEnv.ENABLE_ARCHIVIST ?? exampleEnv.ENABLE_ARCHIVIST ?? "true",
+      ENABLE_TRACE_LOGS: currentEnv.ENABLE_TRACE_LOGS ?? exampleEnv.ENABLE_TRACE_LOGS ?? "false",
+      ENABLE_TURN_TRACE: currentEnv.ENABLE_TURN_TRACE ?? exampleEnv.ENABLE_TURN_TRACE ?? "false",
+      ENABLE_BACKGROUND_TRACE: currentEnv.ENABLE_BACKGROUND_TRACE ?? exampleEnv.ENABLE_BACKGROUND_TRACE ?? "false",
+      TURN_TRACE_LOG_FILE: currentEnv.TURN_TRACE_LOG_FILE ?? exampleEnv.TURN_TRACE_LOG_FILE ?? "logs/turn-traces.jsonl",
+      BACKGROUND_TRACE_LOG_FILE: currentEnv.BACKGROUND_TRACE_LOG_FILE ?? exampleEnv.BACKGROUND_TRACE_LOG_FILE ?? "logs/background-traces.jsonl",
+      DM_CONTEXT_ROUTER_FORCE_LLM: currentEnv.DM_CONTEXT_ROUTER_FORCE_LLM ?? exampleEnv.DM_CONTEXT_ROUTER_FORCE_LLM ?? "false",
       GATEWAY_LLM_RPM: currentEnv.GATEWAY_LLM_RPM ?? exampleEnv.GATEWAY_LLM_RPM ?? "60",
       GATEWAY_LLM_MAX_CONCURRENT: currentEnv.GATEWAY_LLM_MAX_CONCURRENT ?? exampleEnv.GATEWAY_LLM_MAX_CONCURRENT ?? "5",
+      LLM_ROUTER_PROVIDER: currentEnv.LLM_ROUTER_PROVIDER ?? exampleEnv.LLM_ROUTER_PROVIDER ?? "",
+      LLM_ROUTER_BASE_URL: currentEnv.LLM_ROUTER_BASE_URL ?? exampleEnv.LLM_ROUTER_BASE_URL ?? "",
+      LLM_ROUTER_API_KEY: currentEnv.LLM_ROUTER_API_KEY ?? exampleEnv.LLM_ROUTER_API_KEY ?? "",
+      LLM_ROUTER_MODEL: currentEnv.LLM_ROUTER_MODEL ?? exampleEnv.LLM_ROUTER_MODEL ?? "",
+      LLM_ROUTER_ENDPOINT_PATH: currentEnv.LLM_ROUTER_ENDPOINT_PATH ?? exampleEnv.LLM_ROUTER_ENDPOINT_PATH ?? "",
+      LLM_ROUTER_ANTHROPIC_VERSION: currentEnv.LLM_ROUTER_ANTHROPIC_VERSION ?? exampleEnv.LLM_ROUTER_ANTHROPIC_VERSION ?? "",
+      LLM_ROUTER_EXTRA_HEADERS_JSON: currentEnv.LLM_ROUTER_EXTRA_HEADERS_JSON ?? exampleEnv.LLM_ROUTER_EXTRA_HEADERS_JSON ?? "",
     };
 
     const { lines, map } = readEnvLocal();
