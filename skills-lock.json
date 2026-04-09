@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "open-dungeon": {
+      "source": "kt3v/OpenDungeon",
+      "sourceType": "github",
+      "computedHash": "ec3bb1b646d7d08a2e14e9a41cfd656ebee9f818240ad4c9121dff0b5fc70c68"
+    }
+  }
+}
