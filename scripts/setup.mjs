@@ -47,15 +47,52 @@ const askWebModuleName = async () => {
   }
 };
 
+const getPreferredInterfaceName = () => {
+  if (process.platform === "darwin") {
+    const result = spawnSync("route", ["-n", "get", "default"], { encoding: "utf8" });
+    const match = result.stdout.match(/interface:\s*(\S+)/);
+    return match?.[1] ?? null;
+  }
+
+  if (process.platform === "linux") {
+    const result = spawnSync("ip", ["route", "show", "default"], { encoding: "utf8" });
+    const match = result.stdout.match(/\bdev\s+(\S+)/);
+    return match?.[1] ?? null;
+  }
+
+  return null;
+};
+
+const getInterfacePriority = (name) => {
+  if (/^(en|eth|wlan|wifi|wl)/i.test(name)) return 100;
+  if (/^(bridge|br-|docker|veth|tailscale|utun|tun|tap|vmnet|lo)/i.test(name)) return -100;
+  return 0;
+};
+
 const getLocalIp = () => {
   const interfaces = os.networkInterfaces();
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
+  const preferredName = getPreferredInterfaceName();
+
+  if (preferredName) {
+    for (const iface of interfaces[preferredName] ?? []) {
       if (iface.family === "IPv4" && !iface.internal) {
         return iface.address;
       }
     }
   }
+
+  const candidates = Object.entries(interfaces)
+    .flatMap(([name, ifaces]) =>
+      (ifaces ?? [])
+        .filter((iface) => iface.family === "IPv4" && !iface.internal)
+        .map((iface) => ({ name, address: iface.address }))
+    )
+    .sort((a, b) => getInterfacePriority(b.name) - getInterfacePriority(a.name));
+
+  if (candidates.length > 0) {
+    return candidates[0].address;
+  }
+
   return "localhost";
 };
 
