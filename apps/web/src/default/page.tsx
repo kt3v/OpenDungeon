@@ -491,8 +491,10 @@ export default function HomePage() {
           --radius-lg:  14px;
         }
 
-        html, body {
+        html, body, #root {
+          width: 100%;
           height: 100%;
+          min-height: 100%;
           margin: 0;
           background: var(--bg-deep);
           color: var(--text);
@@ -507,15 +509,20 @@ export default function HomePage() {
             radial-gradient(ellipse 70% 50% at 15% 0%, rgba(26, 86, 232, 0.12) 0%, transparent 55%),
             radial-gradient(ellipse 50% 40% at 85% 95%, rgba(14, 61, 212, 0.15) 0%, transparent 50%),
             var(--bg-deep);
+          overflow: hidden;
+          overscroll-behavior: none;
         }
 
         .od-shell {
-          min-height: 100vh;
+          width: 100%;
+          min-height: 100%;
+          height: 100%;
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: flex-start;
           padding: 0;
+          overflow: hidden;
         }
 
         .od-input {
@@ -616,6 +623,7 @@ export default function HomePage() {
           position: sticky;
           top: 0;
           z-index: 50;
+          min-width: 0;
         }
         .app-header-logo {
           width: 20px;
@@ -648,12 +656,16 @@ export default function HomePage() {
 
         /* Unified Screen Container */
         .screen-container {
+          min-height: 100svh;
+          max-height: 100svh;
+          height: 100svh;
           height: 100vh;
           height: 100dvh;
           width: 100%;
           display: flex;
           flex-direction: column;
           overflow: hidden;
+          min-width: 0;
         }
         .screen-content {
           width: 100%;
@@ -667,11 +679,15 @@ export default function HomePage() {
         }
 
         .auth-root {
-          min-height: 100vh;
+          min-height: 100svh;
+          height: 100svh;
+          height: 100dvh;
           width: 100%;
           display: flex;
           flex-direction: column;
           position: relative;
+          overflow-y: auto;
+          overflow-x: hidden;
         }
         .auth-card {
           width: 100%;
@@ -777,6 +793,9 @@ export default function HomePage() {
           flex-direction: column;
           gap: 16px;
           flex: 1;
+          min-height: 0;
+          min-width: 0;
+          overflow: hidden;
         }
         .screen-header {
           display: flex;
@@ -791,12 +810,13 @@ export default function HomePage() {
           color: var(--text);
           letter-spacing: -0.02em;
         }
-        .screen-header-left { display: flex; align-items: center; gap: 12px; }
+        .screen-header-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
         .character-header {
           display: flex;
           align-items: baseline;
           gap: 10px;
           min-width: 0;
+          flex-wrap: wrap;
         }
         .character-meta {
           font-size: 13px;
@@ -822,7 +842,27 @@ export default function HomePage() {
         .resource-label { color: var(--text-faint); font-weight: 500; text-transform: uppercase; letter-spacing: 0.07em; }
         .resource-value { color: var(--gold-hi); font-weight: 500; }
 
-        .list-area { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+        .list-area {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          flex: 1;
+          min-height: 0;
+          min-width: 0;
+          overflow-y: auto;
+          overflow-x: hidden;
+          padding-right: 4px;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(64, 128, 255, 0.7) transparent;
+        }
+        .list-area::-webkit-scrollbar { width: 10px; }
+        .list-area::-webkit-scrollbar-track { background: transparent; }
+        .list-area::-webkit-scrollbar-thumb {
+          background: linear-gradient(180deg, rgba(64, 128, 255, 0.9), rgba(26, 86, 232, 0.75));
+          border-radius: 999px;
+          border: 2px solid transparent;
+          background-clip: padding-box;
+        }
         .list-empty { color: var(--text-faint); font-size: 14px; padding: 24px 0; text-align: center; }
         .list-item {
           display: flex;
@@ -835,14 +875,15 @@ export default function HomePage() {
           cursor: pointer;
           transition: border-color 0.15s, background 0.15s;
           user-select: none;
+          min-width: 0;
         }
         .list-item:hover { border-color: var(--border-hi); background: rgba(255,255,255,0.03); }
         .list-item--selected { border-color: var(--primary); background: rgba(26, 86, 232, 0.14); }
         .list-item-icon { color: var(--primary); font-size: 12px; flex-shrink: 0; width: 14px; }
-        .list-item-label { flex: 1; font-weight: 500; color: var(--text); }
-        .list-item-id { color: var(--text-faint); font-size: 12px; font-family: monospace; }
-        .list-item-col { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-        .list-item-meta { font-size: 12px; color: var(--text-dim); }
+        .list-item-label { flex: 1; font-weight: 500; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .list-item-id { color: var(--text-faint); font-size: 12px; font-family: monospace; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .list-item-col { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .list-item-meta { font-size: 12px; color: var(--text-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         .list-item-delete {
           opacity: 0;
           background: transparent;
@@ -906,9 +947,9 @@ export default function HomePage() {
           flex-wrap: wrap;
         }
         .selection-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-        .selection-name { font-weight: 500; color: var(--text); }
-        .selection-chars { font-size: 13px; color: var(--text-dim); }
-        .footer-actions { display: flex; gap: 10px; align-items: center; }
+        .selection-name { font-weight: 500; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .selection-chars { font-size: 13px; color: var(--text-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .footer-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         .action-footer { margin-top: 0; }
         .action-footer .action-input {
           flex: 1;
@@ -929,7 +970,9 @@ export default function HomePage() {
         .actions-scroll-area {
           flex: 1;
           min-height: 0;
+          min-width: 0;
           overflow-y: auto;
+          overflow-x: hidden;
           display: flex;
           flex-direction: column;
           gap: 16px;
@@ -1144,10 +1187,21 @@ export default function HomePage() {
         }
 
         @media (max-width: 560px) {
-          .screen-root { padding: 20px 16px; }
+          .app-header {
+            padding-left: 14px;
+            padding-right: 14px;
+          }
+          .app-header-tagline {
+            display: none;
+          }
+          .screen-root { padding: 20px 16px calc(20px + env(safe-area-inset-bottom)); }
           .selection-footer { flex-direction: column; align-items: stretch; }
           .footer-actions { justify-content: flex-end; }
-          .actions-root { padding: 16px 12px 110px; }
+          .actions-root { padding: 16px 12px calc(16px + env(safe-area-inset-bottom)); }
+          .character-meta { white-space: normal; }
+          .action-footer {
+            padding: 14px 16px;
+          }
         }
       `}</style>
 

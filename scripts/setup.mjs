@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, cpSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, cpSync, readdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { extname, resolve } from "node:path";
 import os from "node:os";
 import net from "node:net";
 import readline from "node:readline/promises";
@@ -185,6 +185,7 @@ const writeEnvLocal = (lines, map) => {
 };
 
 const WEB_COPY_SKIP = new Set(["node_modules", ".turbo", "dist", "tsconfig.tsbuildinfo"]);
+const WEB_TEXT_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".json", ".html", ".md"]);
 
 const shouldCopyWebPath = (src) => {
   const normalized = src.replace(/\\/g, "/");
@@ -193,6 +194,42 @@ const shouldCopyWebPath = (src) => {
     if (WEB_COPY_SKIP.has(part)) return false;
   }
   return true;
+};
+
+const migrateWebModuleGatewayEnv = (dir) => {
+  if (!existsSync(dir)) return 0;
+
+  let changedFiles = 0;
+  const stack = [dir];
+
+  while (stack.length > 0) {
+    const currentDir = stack.pop();
+    for (const entry of readdirSync(currentDir)) {
+      const filePath = resolve(currentDir, entry);
+      const stats = statSync(filePath);
+
+      if (stats.isDirectory()) {
+        if (!WEB_COPY_SKIP.has(entry)) {
+          stack.push(filePath);
+        }
+        continue;
+      }
+
+      if (!WEB_TEXT_EXTENSIONS.has(extname(filePath))) {
+        continue;
+      }
+
+      const content = readFileSync(filePath, "utf8");
+      if (!content.includes("NEXT_PUBLIC_GATEWAY_URL")) {
+        continue;
+      }
+
+      writeFileSync(filePath, content.replaceAll("NEXT_PUBLIC_GATEWAY_URL", "VITE_GATEWAY_URL"), "utf8");
+      changedFiles += 1;
+    }
+  }
+
+  return changedFiles;
 };
 
 const parseSetupArgs = (argv) => {
@@ -310,6 +347,11 @@ const main = async () => {
         cpSync(defaultUiPath, webModulePath, { recursive: true, filter: shouldCopyWebPath });
         webModuleUpgraded = true;
       }
+    }
+
+    const migratedFiles = migrateWebModuleGatewayEnv(webModulePath);
+    if (migratedFiles > 0) {
+      process.stdout.write(`Migrated web UI env usage in ./web/${webModuleDir} (${migratedFiles} file(s)).\n`);
     }
 
     const webPackageJsonPath = resolve(webModulePath, "package.json");

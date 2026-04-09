@@ -13,6 +13,7 @@ export async function runReset(_args: string[]): Promise<void> {
   println(color("    • node_modules/", c.yellow));
   println(color("    • .env (all your settings)", c.yellow));
   println(color("    • Build artifacts (dist/, .turbo/)", c.yellow));
+  println(color("    • games/ and web/ are kept unless you confirm their deletion below", c.yellow));
   println();
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
