@@ -1,3 +1,7 @@
+---
+name: open-dungeon
+description: Expertise in creating gameplay content for OpenDungeon, covering declarative (JSON/Markdown) and programmatic (TypeScript) mechanics.
+---
 # Skill: Game Content Creator (OpenDungeon)
 
 Expertise in creating gameplay content for OpenDungeon, covering declarative (JSON/Markdown) and programmatic (TypeScript) mechanics.
