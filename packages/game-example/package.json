@@ -29,6 +29,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "@opendungeon/content-sdk": "workspace:*"
+  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }

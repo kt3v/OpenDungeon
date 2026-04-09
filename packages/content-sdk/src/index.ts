@@ -111,6 +111,8 @@ export interface ActionContext extends BaseContext {
 }
 
 export interface SessionEndContext extends BaseContext {
+  /** Final character-local state for the session being ended. */
+  characterState: Record<string, unknown>;
   reason: SessionEndReason;
 }
 

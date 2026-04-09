@@ -1291,11 +1291,19 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       sessionId: session.id,
       playerId: userId,
       reason: "manual",
+      characterState: session.characterState,
       worldState: mergedState
     });
 
     if (endPatch.worldPatch && Object.keys(endPatch.worldPatch).length > 0) {
       await worldStore.applyPatch(campaign.id, endPatch.worldPatch, session.id);
+    }
+
+    if (endPatch.characterState && Object.keys(endPatch.characterState).length > 0) {
+      session.characterState = {
+        ...session.characterState,
+        ...endPatch.characterState
+      };
     }
 
     session.status = "ended";

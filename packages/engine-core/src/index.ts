@@ -97,6 +97,7 @@ export interface EndSessionInput {
   sessionId: string;
   playerId: string;
   reason: SessionEndReason;
+  characterState: Record<string, unknown>;
   worldState: Record<string, unknown>;
 }
 
@@ -218,6 +219,7 @@ export class EngineRuntime {
       campaignId: input.campaignId,
       sessionId: input.sessionId,
       playerId: input.playerId,
+      characterState: input.characterState,
       reason: input.reason,
       worldState: input.worldState
     };
@@ -793,6 +795,7 @@ export class EngineRuntime {
 
   private async runSessionEndHooks(ctx: SessionEndContext): Promise<StatePatch> {
     let worldPatch: Record<string, unknown> = {};
+    let characterStatePatch: Record<string, unknown> = {};
 
     for (const mechanic of this.mechanics) {
       const fn = mechanic.hooks?.onSessionEnd;
@@ -802,8 +805,15 @@ export class EngineRuntime {
         worldPatch = { ...worldPatch, ...patch.worldPatch };
         ctx = { ...ctx, worldState: { ...ctx.worldState, ...patch.worldPatch } };
       }
+      if (patch?.characterState) {
+        characterStatePatch = { ...characterStatePatch, ...patch.characterState };
+        ctx = { ...ctx, characterState: { ...ctx.characterState, ...patch.characterState } };
+      }
     }
 
-    return { worldPatch: Object.keys(worldPatch).length > 0 ? worldPatch : undefined };
+    return {
+      worldPatch: Object.keys(worldPatch).length > 0 ? worldPatch : undefined,
+      characterState: Object.keys(characterStatePatch).length > 0 ? characterStatePatch : undefined
+    };
   }
 }

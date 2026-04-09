@@ -200,7 +200,7 @@ const createModuleFiles = ({ absTargetDir, packageName, typescript, dryRun }) =>
     contentApi: "^1.0.0",
     capabilities: [],
     entry,
-    stateVersion: 1
+    stateVersion: 2
   };
 
   const packageJson = typescript
@@ -261,14 +261,10 @@ const createModuleFiles = ({ absTargetDir, packageName, typescript, dryRun }) =>
   };
 
   const classesJson = {
-    fallback: {
-      level: 1,
-      hp: 100,
-      attributes: { strength: 10, agility: 10, intellect: 10 }
-    },
     classes: [
       {
         name: "Adventurer",
+        isDefault: true,
         level: 1,
         hp: 100,
         attributes: { strength: 10, agility: 10, intellect: 10 }

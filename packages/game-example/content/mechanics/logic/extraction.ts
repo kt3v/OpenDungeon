@@ -4,7 +4,7 @@ import { defineMechanic } from "@opendungeon/content-sdk";
  * Extraction mechanic — roguelite "extraction shooter" pattern.
  *
  * Rules:
- * - Items found during a session accumulate in `worldState.sessionLoot`.
+ * - Items found during a session accumulate in `characterState.sessionLoot`.
  * - If the player reaches an exit and successfully extracts, session loot
  *   is moved to `worldState.persistedLoot[playerId]` (survives between runs).
  * - If the session ends via death or abandonment, session loot is lost.
@@ -47,7 +47,7 @@ export const extractionMechanic = defineMechanic({
     onSessionStart: async (ctx) => {
       // Reset session loot at the start of each run
       return {
-        worldPatch: {
+        characterState: {
           sessionLoot: [],
           nearExit: false
         }
@@ -55,25 +55,37 @@ export const extractionMechanic = defineMechanic({
     },
 
     onActionResolved: async (result, ctx) => {
-      const patch: Record<string, unknown> = {};
+      const nextWorldPatch = { ...(result.worldPatch ?? {}) };
+      const nextCharacterState = { ...(result.characterState ?? {}) };
 
-      // If the DM found loot this turn, add it to session loot
-      const lootFound = result.worldPatch?.lootFound;
-      if (Array.isArray(lootFound) && lootFound.length > 0) {
-        const currentLoot = Array.isArray(ctx.worldState.sessionLoot)
-          ? ctx.worldState.sessionLoot
+      let sessionLoot = Array.isArray(nextCharacterState.sessionLoot)
+        ? nextCharacterState.sessionLoot
+        : Array.isArray(ctx.characterState.sessionLoot)
+          ? ctx.characterState.sessionLoot
           : [];
-        patch.sessionLoot = [...currentLoot, ...lootFound];
-        // Clear the transient lootFound key from the patch
-        const { lootFound: _removed, ...rest } = result.worldPatch ?? {};
-        result = { ...result, worldPatch: { ...rest, ...patch } };
+
+      // Move transient lootFound from DM worldPatch into session-scoped characterState
+      const lootFound = nextWorldPatch.lootFound;
+      if (Array.isArray(lootFound) && lootFound.length > 0) {
+        sessionLoot = [...sessionLoot, ...lootFound];
+        nextCharacterState.sessionLoot = sessionLoot;
+        delete nextWorldPatch.lootFound;
       }
 
+      // Move nearExit to characterState so it stays session-local
+      if (typeof nextWorldPatch.nearExit === "boolean") {
+        nextCharacterState.nearExit = nextWorldPatch.nearExit;
+        delete nextWorldPatch.nearExit;
+      }
+
+      result = {
+        ...result,
+        worldPatch: Object.keys(nextWorldPatch).length > 0 ? nextWorldPatch : undefined,
+        characterState: Object.keys(nextCharacterState).length > 0 ? nextCharacterState : undefined
+      };
+
       // If the DM moved the player near an exit, surface the extract action
-      if (result.worldPatch?.nearExit === true) {
-        const sessionLoot = Array.isArray(ctx.worldState.sessionLoot)
-          ? ctx.worldState.sessionLoot
-          : [];
+      if (nextCharacterState.nearExit === true) {
         const extractAction = {
           id: "extraction.extract",
           label: `Extract (${sessionLoot.length} item${sessionLoot.length !== 1 ? "s" : ""})`,
@@ -93,16 +105,21 @@ export const extractionMechanic = defineMechanic({
     },
 
     onSessionEnd: async (ctx) => {
+      const sessionLoot = Array.isArray(ctx.characterState.sessionLoot)
+        ? ctx.characterState.sessionLoot
+        : [];
+      const resetSessionState = {
+        sessionLoot: [],
+        nearExit: false
+      };
+
       if (ctx.reason !== "extraction_success") {
-        // Lost run — session loot is wiped (already gone when session ends)
-        return {};
+        return {
+          characterState: resetSessionState
+        };
       }
 
       // Successful extraction — persist loot across runs
-      const sessionLoot = Array.isArray(ctx.worldState.sessionLoot)
-        ? ctx.worldState.sessionLoot
-        : [];
-
       const persistedKey = `persistedLoot_${ctx.playerId}`;
       const existing = Array.isArray(ctx.worldState[persistedKey])
         ? (ctx.worldState[persistedKey] as unknown[])
@@ -110,8 +127,10 @@ export const extractionMechanic = defineMechanic({
 
       return {
         worldPatch: {
-          sessionLoot: [],
           [persistedKey]: [...existing, ...sessionLoot]
+        },
+        characterState: {
+          ...resetSessionState
         }
       };
     }
@@ -167,14 +186,14 @@ export const extractionMechanic = defineMechanic({
     extract: {
       description: "Exit the dungeon and keep your session loot",
       validate: (ctx) => {
-        if (ctx.worldState.nearExit !== true) {
+        if (ctx.characterState.nearExit !== true) {
           return "You must reach an exit point before you can extract.";
         }
         return true;
       },
       resolve: async (ctx) => {
-        const sessionLoot = Array.isArray(ctx.worldState.sessionLoot)
-          ? ctx.worldState.sessionLoot
+        const sessionLoot = Array.isArray(ctx.characterState.sessionLoot)
+          ? ctx.characterState.sessionLoot
           : [];
         const count = sessionLoot.length;
 

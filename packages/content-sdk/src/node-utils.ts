@@ -303,7 +303,7 @@ export const loadContextModulesDirSync = (dirPath: string): DungeonMasterContext
  * });
  * ```
  */
-const VALID_RESOURCE_SOURCES = new Set(["characterState", "worldState"]);
+const VALID_RESOURCE_SOURCES = new Set(["characterState", "worldState", "session"]);
 const VALID_RESOURCE_TYPES = new Set(["number", "text", "list", "boolean"]);
 
 const isResourceSchema = (value: unknown): value is ResourceSchema => {
@@ -368,7 +368,7 @@ export const loadResourcesDirSync = (dirPath: string): ResourceSchema[] => {
         console.warn(
           `[content-sdk] Skipping invalid resource in "${file}" — ` +
             `must have string "id", "label", "stateKey", ` +
-            `source: "character"|"characterState"|"worldState", ` +
+            `source: "characterState"|"worldState"|"session", ` +
             `and type: "number"|"text"|"list"|"boolean".`
         );
       }

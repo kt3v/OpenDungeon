@@ -385,8 +385,14 @@ export class ActionProcessor {
         // Handle session end (run hooks before committing end state)
         let endSessionReason: SessionEndReason | undefined;
         let endWorldPatch: Record<string, unknown> | undefined;
+        let endCharacterState: Record<string, unknown> | undefined;
 
         if (result.endSession) {
+          const characterStateForSessionEnd = {
+            ...session.characterState,
+            ...(result.characterState ?? {})
+          };
+
           const endPatch = await trace.measure("engine.endSession", async () =>
             this.runtime.endSession({
               tenantId: campaign.ownerId,
@@ -394,6 +400,7 @@ export class ActionProcessor {
               sessionId,
               playerId: session.userId,
               reason: result.endSession as SessionEndReason,
+              characterState: characterStateForSessionEnd,
               worldState: mergedWorldState
             })
           );
@@ -403,6 +410,10 @@ export class ActionProcessor {
               this.worldStore.applyPatch(campaignId, endPatch.worldPatch!, sessionId)
             );
             endWorldPatch = endPatch.worldPatch;
+          }
+
+          if (endPatch.characterState && Object.keys(endPatch.characterState).length > 0) {
+            endCharacterState = endPatch.characterState;
           }
 
           endSessionReason = result.endSession;
@@ -422,7 +433,8 @@ export class ActionProcessor {
         // 2. Any patches from mechanics (hp/level are already in characterState from engine)
         const newCharacterState: Record<string, unknown> = {
           ...session.characterState,
-          ...(result.characterState ?? {})
+          ...(result.characterState ?? {}),
+          ...(endCharacterState ?? {})
         };
 
         // Commit session mutation (persists to DB and updates in-memory)
