@@ -11,6 +11,7 @@ import type {
   PlayerAction,
   SessionEndContext,
   StatePatch,
+  StateOperation,
   SuggestedAction
 } from "@opendungeon/content-sdk";
 import { renderDungeonMasterPromptTemplate, renderGameModuleSetting } from "@opendungeon/content-sdk";
@@ -165,35 +166,34 @@ export class EngineRuntime {
       worldState: input.worldState
     };
 
-    let worldPatch: Record<string, unknown> = {};
-    let characterStatePatch: Record<string, unknown> = {};
+    let stateOps: StateOperation[] = [];
     let locationPatch: string | undefined = input.location;
 
     for (const mechanic of this.mechanics) {
       const fn = mechanic.hooks?.onCharacterCreated;
       if (!fn) continue;
       const patch = await fn(ctx);
-      if (patch?.worldPatch) {
-        worldPatch = { ...worldPatch, ...patch.worldPatch };
-        ctx.worldState = { ...ctx.worldState, ...patch.worldPatch };
-      }
-      if (patch?.characterState) {
-        characterStatePatch = { ...characterStatePatch, ...patch.characterState };
-      }
-      if (patch?.location) {
-        locationPatch = patch.location;
-        ctx.location = patch.location;
+      if (patch?.stateOps && patch.stateOps.length > 0) {
+        stateOps = [...stateOps, ...patch.stateOps];
+        const applied = this.applyStateOpsToRuntimeState({
+          worldState: ctx.worldState,
+          characterState: ctx.characterState,
+          location: ctx.location,
+          stateOps: patch.stateOps,
+          actor: "mechanic"
+        });
+        ctx.worldState = applied.worldState;
+        ctx.characterState = applied.characterState;
+        if (applied.location !== undefined) {
+          locationPatch = applied.location;
+          ctx.location = applied.location;
+        }
       }
     }
 
-    const result: StatePatch = {
-      worldPatch: Object.keys(worldPatch).length > 0 ? worldPatch : undefined,
-      characterState: Object.keys(characterStatePatch).length > 0 ? characterStatePatch : undefined
+    return {
+      stateOps: stateOps.length > 0 ? stateOps : undefined
     };
-    if (locationPatch !== input.location) {
-      result.location = locationPatch;
-    }
-    return result;
   }
 
   // -------------------------------------------------------------------------
@@ -390,6 +390,7 @@ export class EngineRuntime {
         playerId: input.playerId,
         actionText: input.actionText,
         worldState: input.worldState,
+        characterState: input.characterState,
         location: input.location,
         recentEvents: input.recentEvents,
         summary: input.summary,
@@ -398,6 +399,7 @@ export class EngineRuntime {
         availableMechanicActions: availableMechanicActions.length > 0
           ? availableMechanicActions
           : undefined,
+        stateCatalog: this.gameModule.state,
         trace: input.trace,
         moduleConfig: {
           ...this.gameModule.dm,
@@ -417,7 +419,7 @@ export class EngineRuntime {
 
       const dmNarrativeResult: ActionResult = {
         message: dmResult.message,
-        worldPatch: dmResult.worldPatch,
+        stateOps: dmResult.stateOps,
         location: dmResult.location,
         summaryPatch: dmResult.summaryPatch,
         suggestedActions: dmResult.suggestedActions,
@@ -770,50 +772,108 @@ export class EngineRuntime {
     hook: "onSessionStart",
     ctx: BaseContext & { characterState: Record<string, unknown> }
   ): Promise<StatePatch> {
-    let worldPatch: Record<string, unknown> = {};
-    let characterStatePatch: Record<string, unknown> = {};
+    let stateOps: StateOperation[] = [];
 
     for (const mechanic of this.mechanics) {
       const fn = mechanic.hooks?.[hook];
       if (!fn) continue;
       const patch = await fn(ctx);
-      if (patch?.worldPatch) {
-        worldPatch = { ...worldPatch, ...patch.worldPatch };
-        // Update ctx so later mechanics see accumulated state
-        ctx = { ...ctx, worldState: { ...ctx.worldState, ...patch.worldPatch } };
-      }
-      if (patch?.characterState) {
-        characterStatePatch = { ...characterStatePatch, ...patch.characterState };
+      if (patch?.stateOps && patch.stateOps.length > 0) {
+        stateOps = [...stateOps, ...patch.stateOps];
+        const applied = this.applyStateOpsToRuntimeState({
+          worldState: ctx.worldState,
+          characterState: ctx.characterState,
+          location: undefined,
+          stateOps: patch.stateOps,
+          actor: "mechanic"
+        });
+        ctx = {
+          ...ctx,
+          worldState: applied.worldState,
+          characterState: applied.characterState
+        };
       }
     }
 
     return {
-      worldPatch: Object.keys(worldPatch).length > 0 ? worldPatch : undefined,
-      characterState: Object.keys(characterStatePatch).length > 0 ? characterStatePatch : undefined
+      stateOps: stateOps.length > 0 ? stateOps : undefined
     };
   }
 
   private async runSessionEndHooks(ctx: SessionEndContext): Promise<StatePatch> {
-    let worldPatch: Record<string, unknown> = {};
-    let characterStatePatch: Record<string, unknown> = {};
+    let stateOps: StateOperation[] = [];
 
     for (const mechanic of this.mechanics) {
       const fn = mechanic.hooks?.onSessionEnd;
       if (!fn) continue;
       const patch = await fn(ctx);
-      if (patch?.worldPatch) {
-        worldPatch = { ...worldPatch, ...patch.worldPatch };
-        ctx = { ...ctx, worldState: { ...ctx.worldState, ...patch.worldPatch } };
-      }
-      if (patch?.characterState) {
-        characterStatePatch = { ...characterStatePatch, ...patch.characterState };
-        ctx = { ...ctx, characterState: { ...ctx.characterState, ...patch.characterState } };
+      if (patch?.stateOps && patch.stateOps.length > 0) {
+        stateOps = [...stateOps, ...patch.stateOps];
+        const applied = this.applyStateOpsToRuntimeState({
+          worldState: ctx.worldState,
+          characterState: ctx.characterState,
+          location: undefined,
+          stateOps: patch.stateOps,
+          actor: "mechanic"
+        });
+        ctx = {
+          ...ctx,
+          worldState: applied.worldState,
+          characterState: applied.characterState
+        };
       }
     }
 
     return {
-      worldPatch: Object.keys(worldPatch).length > 0 ? worldPatch : undefined,
-      characterState: Object.keys(characterStatePatch).length > 0 ? characterStatePatch : undefined
+      stateOps: stateOps.length > 0 ? stateOps : undefined
     };
+  }
+
+  private applyStateOpsToRuntimeState(input: {
+    worldState: Record<string, unknown>;
+    characterState: Record<string, unknown>;
+    location?: string;
+    stateOps: StateOperation[];
+    actor: "dm" | "mechanic" | "system";
+  }): {
+    worldState: Record<string, unknown>;
+    characterState: Record<string, unknown>;
+    location?: string;
+  } {
+    const defs = new Map((this.gameModule.state?.variables ?? []).map((v) => [v.id, v]));
+    const worldState = { ...input.worldState };
+    const characterState = { ...input.characterState };
+    let location = input.location;
+
+    for (const op of input.stateOps) {
+      const def = defs.get(op.varId);
+      if (!def) continue;
+      if (!(def.writableBy ?? ["dm", "mechanic", "system"]).includes(input.actor)) continue;
+
+      const target = def.scope === "world" ? worldState : characterState;
+      const current = target[def.id];
+
+      if (op.op === "set") {
+        target[def.id] = op.value;
+      } else if (op.op === "inc" || op.op === "dec") {
+        const delta = Number(op.value);
+        if (!Number.isFinite(delta)) continue;
+        const prev = typeof current === "number" ? current : Number(current ?? 0);
+        if (!Number.isFinite(prev)) continue;
+        target[def.id] = op.op === "inc" ? prev + delta : prev - delta;
+      } else if (op.op === "append") {
+        const prev = Array.isArray(current) ? current : [];
+        target[def.id] = [...prev, op.value];
+      } else if (op.op === "remove") {
+        const prev = Array.isArray(current) ? current : [];
+        target[def.id] = prev.filter((item) => JSON.stringify(item) !== JSON.stringify(op.value));
+      }
+
+      if (def.scope === "session" && def.id === "location" && typeof target[def.id] === "string") {
+        location = target[def.id] as string;
+      }
+    }
+
+    return { worldState, characterState, location };
   }
 }

@@ -14,6 +14,7 @@ import {
   type LLMMetrics
 } from "@opendungeon/providers-llm";
 import { ArchitectRuntime, ArchitectOperationExecutor } from "@opendungeon/architect";
+import type { ResourceSchema, StateOperation, StateVariable } from "@opendungeon/content-sdk";
 import { loadGameModuleFromPath, type LoadedGameModule } from "./module-loader.js";
 import { serverConfig } from "./server-config.js";
 import { WorldStore } from "./world-store.js";
@@ -171,6 +172,80 @@ const parseJsonRecord = (value: unknown): Record<string, unknown> => {
     return value as Record<string, unknown>;
   }
   return {};
+};
+
+const applyStateOperations = (input: {
+  operations: StateOperation[];
+  variables: StateVariable[];
+  worldState: Record<string, unknown>;
+  characterState: Record<string, unknown>;
+  location: string;
+  actor: "dm" | "mechanic" | "system";
+}): {
+  worldState: Record<string, unknown>;
+  worldPatch: Record<string, unknown>;
+  characterState: Record<string, unknown>;
+  location: string;
+} => {
+  const defs = new Map(input.variables.map((v) => [v.id, v]));
+  const worldState = { ...input.worldState };
+  const worldPatch: Record<string, unknown> = {};
+  const characterState = { ...input.characterState };
+  let location = input.location;
+
+  for (const op of input.operations) {
+    const def = defs.get(op.varId);
+    if (!def) continue;
+    if (!(def.writableBy ?? ["dm", "mechanic", "system"]).includes(input.actor)) continue;
+    const target = def.scope === "world" ? worldState : characterState;
+    const current = target[def.id];
+
+    if (op.op === "set") {
+      target[def.id] = op.value;
+    } else if (op.op === "inc" || op.op === "dec") {
+      const delta = Number(op.value);
+      if (!Number.isFinite(delta)) continue;
+      const prev = typeof current === "number" ? current : Number(current ?? 0);
+      if (!Number.isFinite(prev)) continue;
+      target[def.id] = op.op === "inc" ? prev + delta : prev - delta;
+    } else if (op.op === "append") {
+      const prev = Array.isArray(current) ? current : [];
+      target[def.id] = [...prev, op.value];
+    } else if (op.op === "remove") {
+      const prev = Array.isArray(current) ? current : [];
+      target[def.id] = prev.filter((item) => JSON.stringify(item) !== JSON.stringify(op.value));
+    }
+
+    if (def.scope === "world") {
+      worldPatch[def.id] = worldState[def.id];
+    }
+    if (def.scope === "session" && def.id === "location" && typeof target[def.id] === "string") {
+      location = target[def.id] as string;
+    }
+  }
+
+  return { worldState, worldPatch, characterState, location };
+};
+
+const resolveIndicators = (input: {
+  resources: ResourceSchema[];
+  worldState: Record<string, unknown>;
+  characterState: Record<string, unknown>;
+  variables: StateVariable[];
+  location: string;
+}) => {
+  const defs = new Map(input.variables.map((v) => [v.id, v]));
+  return input.resources.map((resource) => {
+    const def = defs.get(resource.varId);
+    const source = def?.scope === "world" ? input.worldState : input.characterState;
+    const value = resource.varId === "location" ? input.location : source[resource.varId];
+    return {
+      id: resource.id,
+      label: resource.label,
+      type: resource.type,
+      value: value ?? resource.defaultValue ?? "-"
+    };
+  });
 };
 
 const initPersistence = async (db: InMemoryDb): Promise<PersistenceContext> => {
@@ -338,6 +413,25 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   const persistence = await initPersistence(db);
 
   const worldStore = new WorldStore(persistence.prisma);
+  await worldStore.syncStateCatalog(
+    runtimeCtx.loadedModule.gameModule.manifest.name,
+    runtimeCtx.loadedModule.gameModule.manifest.version,
+    runtimeCtx.loadedModule.gameModule.state?.variables ?? []
+  );
+
+  for (const session of db.sessionsById.values()) {
+    const [characterState, sessionState] = await Promise.all([
+      worldStore.getCharacterView(session.campaignId, session.id),
+      worldStore.getSessionView(session.campaignId, session.id)
+    ]);
+
+    if (Object.keys(characterState).length > 0) {
+      session.characterState = characterState;
+    }
+    if (typeof sessionState.location === "string") {
+      session.location = sessionState.location;
+    }
+  }
 
   const app = Fastify({ logger: false });
   await app.register(cors, { origin: true });
@@ -381,6 +475,21 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
   const persistSession = async (session: Session): Promise<void> => {
     if (!persistence.prisma) return;
+    await worldStore.upsertScopedState({
+      campaignId: session.campaignId,
+      sessionId: session.id,
+      scope: "character",
+      state: session.characterState,
+      lastSessionId: session.id
+    });
+    await worldStore.upsertScopedState({
+      campaignId: session.campaignId,
+      sessionId: session.id,
+      scope: "session",
+      state: { location: session.location },
+      lastSessionId: session.id
+    });
+
     await persistence.prisma.session.upsert({
       where: { id: session.id },
       update: {
@@ -499,6 +608,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     persistence.prisma,
     processorCallbacks,
     backgroundLoreProvider,
+    runtimeCtx.loadedModule.gameModule.state?.variables ?? [],
     architect
   );
 
@@ -556,12 +666,18 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       const drained = await processor.drain(30_000);
       if (!drained) console.warn("[reload] Drain timed out after 30s, forcing swap");
       runtimeCtx = newCtx;
+      await worldStore.syncStateCatalog(
+        runtimeCtx.loadedModule.gameModule.manifest.name,
+        runtimeCtx.loadedModule.gameModule.manifest.version,
+        runtimeCtx.loadedModule.gameModule.state?.variables ?? []
+      );
       processor = new ActionProcessor(
         newCtx.runtime,
         worldStore,
         persistence.prisma,
         processorCallbacks,
         backgroundLoreProvider,
+        newCtx.loadedModule.gameModule.state?.variables ?? [],
         architect
       );
       console.log("[reload] Module reloaded:", newCtx.loadedModule.entryPath);
@@ -975,19 +1091,32 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       worldState: currentWorldState
     });
 
-    if (charPatch.worldPatch && Object.keys(charPatch.worldPatch).length > 0) {
-      await worldStore.applyPatch(campaign.id, charPatch.worldPatch, sessionId);
+    const stateVariables = runtimeCtx.loadedModule.gameModule.state?.variables ?? [];
+    const appliedCharPatch = applyStateOperations({
+      operations: charPatch.stateOps ?? [],
+      variables: stateVariables,
+      worldState: currentWorldState,
+      characterState: initialCharacterState,
+      location: "",
+      actor: "mechanic"
+    });
+    await worldStore.logOperations({
+      campaignId: campaign.id,
+      sessionId,
+      actor: "mechanic",
+      source: "on_character_created",
+      operations: charPatch.stateOps ?? [],
+      variables: stateVariables,
+      valueBefore: { ...currentWorldState, ...initialCharacterState },
+      valueAfter: { ...appliedCharPatch.worldState, ...appliedCharPatch.characterState, location: appliedCharPatch.location }
+    });
+
+    if (Object.keys(appliedCharPatch.worldPatch).length > 0) {
+      await worldStore.applyPatch(campaign.id, appliedCharPatch.worldPatch, sessionId);
     }
 
-    // Merge characterState from hooks
-    if (charPatch.characterState) {
-      initialCharacterState = { ...initialCharacterState, ...charPatch.characterState };
-    }
-
-    // Re-read world after character creation patch
-    const worldAfterChar = charPatch.worldPatch
-      ? { ...currentWorldState, ...charPatch.worldPatch }
-      : currentWorldState;
+    initialCharacterState = appliedCharPatch.characterState;
+    const worldAfterChar = appliedCharPatch.worldState;
 
     // Run onSessionStart hooks
     const sessionPatch = await runtimeCtx.runtime.startSession({
@@ -999,17 +1128,33 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       worldState: worldAfterChar
     });
 
-    if (sessionPatch.worldPatch && Object.keys(sessionPatch.worldPatch).length > 0) {
-      await worldStore.applyPatch(campaign.id, sessionPatch.worldPatch, sessionId);
+    const appliedSessionPatch = applyStateOperations({
+      operations: sessionPatch.stateOps ?? [],
+      variables: stateVariables,
+      worldState: worldAfterChar,
+      characterState: initialCharacterState,
+      location: appliedCharPatch.location,
+      actor: "mechanic"
+    });
+    await worldStore.logOperations({
+      campaignId: campaign.id,
+      sessionId,
+      actor: "mechanic",
+      source: "on_session_start",
+      operations: sessionPatch.stateOps ?? [],
+      variables: stateVariables,
+      valueBefore: { ...worldAfterChar, ...initialCharacterState, location: appliedCharPatch.location },
+      valueAfter: { ...appliedSessionPatch.worldState, ...appliedSessionPatch.characterState, location: appliedSessionPatch.location }
+    });
+
+    if (Object.keys(appliedSessionPatch.worldPatch).length > 0) {
+      await worldStore.applyPatch(campaign.id, appliedSessionPatch.worldPatch, sessionId);
     }
 
-    // Merge characterState from session start hooks
-    if (sessionPatch.characterState) {
-      initialCharacterState = { ...initialCharacterState, ...sessionPatch.characterState };
-    }
+    initialCharacterState = appliedSessionPatch.characterState;
 
-    // Get starting location from character creation hooks
-    const startingLocation = charPatch.location ?? "";
+    // Get starting location from hook operations
+    const startingLocation = appliedSessionPatch.location;
 
     const session: Session = {
       id: sessionId,
@@ -1021,7 +1166,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       characterState: initialCharacterState,
       status: "active",
       events: [],
-      suggestedActions: runtimeCtx.runtime.getSuggestedActions({ worldState: worldAfterChar }),
+      suggestedActions: runtimeCtx.runtime.getSuggestedActions({ worldState: appliedSessionPatch.worldState }),
       summary: undefined,
       createdAt: new Date().toISOString()
     };
@@ -1239,6 +1384,15 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
     // Return canonical world view + character state as merged context
     const worldView = await worldStore.getView(campaign.id);
+    const resources = runtimeCtx.loadedModule.gameModule.resources ?? [];
+    const stateVariables = runtimeCtx.loadedModule.gameModule.state?.variables ?? [];
+    const resolvedIndicators = resolveIndicators({
+      resources,
+      worldState: worldView,
+      characterState: session.characterState,
+      variables: stateVariables,
+      location: session.location
+    });
 
     return {
       session: {
@@ -1257,9 +1411,10 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       },
       worldState: worldView,
       characterState: session.characterState,
+      location: session.location,
       events: session.events,
       createdAt: session.createdAt,
-      resourceSchema: runtimeCtx.loadedModule.gameModule.resources ?? []
+      resolvedIndicators
     };
   });
 
@@ -1295,16 +1450,31 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       worldState: mergedState
     });
 
-    if (endPatch.worldPatch && Object.keys(endPatch.worldPatch).length > 0) {
-      await worldStore.applyPatch(campaign.id, endPatch.worldPatch, session.id);
+    const appliedEndPatch = applyStateOperations({
+      operations: endPatch.stateOps ?? [],
+      variables: runtimeCtx.loadedModule.gameModule.state?.variables ?? [],
+      worldState: currentWorldState,
+      characterState: session.characterState,
+      location: session.location,
+      actor: "mechanic"
+    });
+    await worldStore.logOperations({
+      campaignId: campaign.id,
+      sessionId: session.id,
+      actor: "mechanic",
+      source: "manual_end_session",
+      operations: endPatch.stateOps ?? [],
+      variables: runtimeCtx.loadedModule.gameModule.state?.variables ?? [],
+      valueBefore: { ...currentWorldState, ...session.characterState, location: session.location },
+      valueAfter: { ...appliedEndPatch.worldState, ...appliedEndPatch.characterState, location: appliedEndPatch.location }
+    });
+
+    if (Object.keys(appliedEndPatch.worldPatch).length > 0) {
+      await worldStore.applyPatch(campaign.id, appliedEndPatch.worldPatch, session.id);
     }
 
-    if (endPatch.characterState && Object.keys(endPatch.characterState).length > 0) {
-      session.characterState = {
-        ...session.characterState,
-        ...endPatch.characterState
-      };
-    }
+    session.characterState = appliedEndPatch.characterState;
+    session.location = appliedEndPatch.location;
 
     session.status = "ended";
     session.endReason = "manual";

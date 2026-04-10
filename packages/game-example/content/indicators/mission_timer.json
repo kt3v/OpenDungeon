@@ -1,8 +1,7 @@
 {
   "id": "mission_timer",
   "label": "Mission Time",
-  "source": "worldState",
-  "stateKey": "mission.timeRemaining",
+  "varId": "mission.timeRemaining",
   "type": "number",
   "defaultValue": 360,
   "description": "Remaining mission time in minutes. Ship self-destructs when time expires."

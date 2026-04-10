@@ -81,8 +81,8 @@ Keep it concise — 10-30 lines. Include:
 \`\`\`json
 {
   "narratorStyle": "strict",
-  "toolPolicy": {
-    "allowedTools": ["update_world_state", "set_summary", "set_suggested_actions"],
+    "toolPolicy": {
+      "allowedTools": ["update_state", "set_summary", "set_suggested_actions"],
     "requireSummary": true,
     "requireSuggestedActions": true
   },

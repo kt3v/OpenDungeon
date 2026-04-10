@@ -47,6 +47,7 @@ const run = async (): Promise<void> => {
     playerId: "00000000-0000-0000-0000-000000000003",
     actionText: "look around",
     worldState: {},
+    characterState: {},
     location: "dungeon_entrance",
     summary: "The party entered a forgotten dungeon.",
     recentEvents: []

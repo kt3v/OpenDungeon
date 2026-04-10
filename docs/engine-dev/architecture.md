@@ -73,10 +73,10 @@ onActionSubmitted hooks  ← all mechanics in order; can modify or block
       │
       ├── mechanicCall → mechanic.validate → mechanic.resolve
       │
-      └── free narration → message + worldPatch + location
+      └── free narration → message + stateOps + location
       │
       ▼
-Archivist post-process   ← auto-updates worldState/summary based on narrative
+Archivist post-process   ← normalizes summary/state operations
       │
       ▼
 onActionResolved hooks   ← all mechanics in order; can modify result
@@ -166,9 +166,11 @@ The DM system prompt is built in layers in `EngineRuntime.buildSystemPrompt`:
 
 ### World state vs character state
 
-**World state** (`worldPatch`) — shared across all players. Stored in `WorldFact` rows. Used for doors opened, global flags, persistent NPCs.
+**World state** (`scope: world`) — shared across all players. Stored in `StateValue` rows.
 
-**Character state** (`characterState`) — private to one player/character. Contains hp, level, inventory, and ephemeral run data like `nearExit` or `sessionLoot`.
+**Character state** (`scope: character`) — private to one player/session. Contains hp, inventory, run-local progression.
+
+**Session state** (`scope: session`) — session-local runtime state like `location`.
 
 ### Session vs campaign
 

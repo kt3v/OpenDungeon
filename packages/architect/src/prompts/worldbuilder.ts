@@ -33,7 +33,7 @@ OpenDungeon is a turn-based RPG engine with two layers of logic:
 \`\`\`json
 {
   "contextRouter": { "enabled": true, "contextTokenBudget": 1200 },
-  "toolPolicy": { "allowedTools": ["update_world_state", "set_summary"], "requireSummary": true },
+  "toolPolicy": { "allowedTools": ["update_state", "set_summary"], "requireSummary": true },
   "guardrails": { "maxSuggestedActions": 4, "maxSummaryChars": 280 }
 }
 \`\`\`
@@ -57,7 +57,7 @@ when:
   - in_combat
 ---
 ## Combat Rules
-- If damage occurs, update \`worldPatch\` fields consistently with references.
+- If damage occurs, update \`stateOps\` consistently with references.
 \`\`\`
 
 Frontmatter meaning:
@@ -76,7 +76,7 @@ Important runtime behavior:
 
 State model contract (must follow):
 - \`world:<key>\` references map to shared campaign world fact keys (example: \`world:merchant.reputation\` ↔ key \`merchant.reputation\`).
-- \`character:<key>\` references describe per-session character state semantics (example: indicators with \`source: "characterState"\`, \`stateKey: "stamina"\`).
+- \`character:<key>\` references describe per-session character state semantics (example: indicators with \`varId: "stamina"\`).
 - In \`initial-state.json\`, avoid nested wrapper objects like \`{ "world": { ... } }\` unless the project explicitly requires it.
 - Keep naming stable across modules, initial-state, indicators, and lore.
 
@@ -84,7 +84,7 @@ If request intent is ambiguous (especially state ownership: world vs character),
 
 ### indicators/*.json (UI)
 \`\`\`json
-{ "id": "hp", "label": "HP", "source": "characterState", "stateKey": "hp", "type": "number", "defaultValue": 100 }
+{ "id": "hp", "label": "HP", "varId": "hp", "type": "number", "defaultValue": 100 }
 \`\`\`
 
 ---
@@ -108,7 +108,7 @@ When writing files for a new feature, prefer a complete declarative slice:
 
 - **MD+JSON First**: Prefer declarative files first. Do not jump to TypeScript unless explicitly required by deterministic constraints.
 - **Stay in Module**: No absolute paths or \`../\` traversal.
-- **Reference Integrity**: Every \`world:*\` reference should be backed by actual state usage (initial-state default, lore explanation, or worldPatch updates in module text).
+- **Reference Integrity**: Every \`world:*\` reference should be backed by actual state usage (initial-state default, lore explanation, or stateOps updates in module text).
 - **Full Feature Slice**: If you add a feature, provide all required files and keep naming consistent across modules/lore/state/indicators.
 - **TypeScript Guidance**: If a request requires TypeScript, explain it in \`message\` and provide a code snippet there. Do NOT attempt to write \`.ts\` files via \`write_file\`.
 - **Preflight Self-Check**: Before returning operations, verify (1) state key consistency, (2) file slice completeness, (3) no schema-shape mismatches.

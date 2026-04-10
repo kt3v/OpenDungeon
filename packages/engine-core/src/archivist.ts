@@ -1,7 +1,6 @@
 import type { ActionResult, DungeonMasterSummaryPatch } from "@opendungeon/content-sdk";
 import {
-  sanitizeDungeonMasterSummaryPatch,
-  sanitizeDungeonMasterWorldPatch
+  sanitizeDungeonMasterSummaryPatch
 } from "@opendungeon/content-sdk";
 import { type LlmProvider } from "@opendungeon/providers-llm";
 
@@ -12,7 +11,7 @@ export interface ArchivistTurnInput {
 }
 
 export interface ArchivistTurnResult {
-  worldPatch?: Record<string, unknown>;
+  stateOps?: ActionResult["stateOps"];
   summaryPatch?: DungeonMasterSummaryPatch;
 }
 
@@ -36,7 +35,7 @@ export class ArchivistRuntime {
               "You are Archivist for a multiplayer RPG world state.",
               "Your role is to normalize state updates and concise session summaries.",
               "Return strict JSON only in shape:",
-              '{"worldPatch": Record<string, unknown>, "summaryPatch": {"shortSummary"?: string, "latestBeat"?: string}}',
+              '{"stateOps": Array<{"op":"set|inc|dec|append|remove","varId":string,"value"?:unknown}>, "summaryPatch": {"shortSummary"?: string, "latestBeat"?: string}}',
               "Do not invent major world changes not implied by the DM result."
             ].join("\n")
           },
@@ -47,7 +46,7 @@ export class ArchivistRuntime {
               worldState: input.worldState,
               dmResult: {
                 message: input.dmResult.message,
-                worldPatch: input.dmResult.worldPatch,
+                stateOps: input.dmResult.stateOps,
                 summaryPatch: input.dmResult.summaryPatch
               }
             })
@@ -77,11 +76,11 @@ const parseArchivistResult = (raw: string): ArchivistTurnResult => {
     }
 
     const obj = parsed as Record<string, unknown>;
-    const worldPatch = sanitizeDungeonMasterWorldPatch(obj.worldPatch);
     const summaryPatch = sanitizeDungeonMasterSummaryPatch(obj.summaryPatch);
+    const stateOps = Array.isArray(obj.stateOps) ? (obj.stateOps as ActionResult["stateOps"]) : undefined;
 
     return {
-      ...(Object.keys(worldPatch).length > 0 ? { worldPatch } : {}),
+      ...(stateOps && stateOps.length > 0 ? { stateOps } : {}),
       ...(summaryPatch ? { summaryPatch } : {})
     };
   } catch {

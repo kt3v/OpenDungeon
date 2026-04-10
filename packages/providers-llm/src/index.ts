@@ -161,12 +161,12 @@ export class MockProvider implements LlmProvider {
           message: "You scan the corridor and hear distant dripping water.",
           toolCalls: [
             {
-              tool: "update_world_state",
+              tool: "update_state",
               args: {
-                patch: {
-                  lastObservation: "dripping_water",
-                  tension: "rising"
-                }
+                operations: [
+                  { op: "set", varId: "lastObservation", value: "dripping_water" },
+                  { op: "set", varId: "tension", value: "rising" }
+                ]
               }
             },
             {

@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import type { StateOperation, StateVariable } from "@opendungeon/content-sdk";
 
 export interface WorldMutation {
   key: string;
@@ -7,121 +8,139 @@ export interface WorldMutation {
   updatedAt: Date;
 }
 
-/**
- * WorldStore — canonical campaign world state.
- *
- * Every fact is a (campaignId, key) → value row in WorldFact. Facts are
- * visible to ALL players in the campaign. The store applies patches
- * atomically with per-key version increments so concurrent writes are
- * detected and retried, not silently lost.
- *
- * When Prisma is unavailable the store falls back to plain in-memory Maps
- * (single-process mode, no cross-restart persistence).
- */
+type ActorType = "dm" | "mechanic" | "system";
+
 export class WorldStore {
-  /** In-memory fallback: campaignId → key → value */
-  private readonly mem = new Map<string, Map<string, unknown>>();
+  private readonly worldMem = new Map<string, Map<string, unknown>>();
+  private readonly characterMem = new Map<string, Map<string, unknown>>();
+  private readonly sessionMem = new Map<string, Map<string, unknown>>();
 
   constructor(private readonly prisma: PrismaClient | null) {}
 
-  // ---------------------------------------------------------------------------
-  // Read
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Assemble a flat Record of all world facts for a campaign.
-   * Returns {} for campaigns with no facts yet.
-   */
-  async getView(campaignId: string): Promise<Record<string, unknown>> {
-    if (!this.prisma) {
-      return Object.fromEntries(this.mem.get(campaignId) ?? new Map());
-    }
-
-    const facts = await this.prisma.worldFact.findMany({
-      where: { campaignId },
-      select: { key: true, value: true }
-    });
-
-    const view: Record<string, unknown> = {};
-    for (const fact of facts) {
-      view[fact.key] = fact.value;
-    }
-    return view;
+  async syncStateCatalog(moduleName: string, moduleVersion: string, variables: StateVariable[]): Promise<void> {
+    if (!this.prisma || variables.length === 0) return;
+    await this.prisma.$transaction(
+      variables.map((variable) =>
+        this.prisma!.stateVariableDef.upsert({
+          where: { moduleName_moduleVersion_varId: { moduleName, moduleVersion, varId: variable.id } },
+          create: {
+            moduleName,
+            moduleVersion,
+            varId: variable.id,
+            scope: variable.scope,
+            valueType: variable.type,
+            defaultValue: variable.defaultValue as object | undefined,
+            writableBy: (variable.writableBy ?? ["dm", "mechanic", "system"]) as object
+          },
+          update: {
+            scope: variable.scope,
+            valueType: variable.type,
+            defaultValue: variable.defaultValue as object | undefined,
+            writableBy: (variable.writableBy ?? ["dm", "mechanic", "system"]) as object
+          }
+        })
+      )
+    );
   }
 
-  /**
-   * Return world facts that were last written by a session OTHER than
-   * `excludeSessionId` and were updated at or after `since`.
-   * Used to inject cross-player context into a DM turn.
-   */
-  async getRecentMutations(
-    campaignId: string,
-    excludeSessionId: string,
-    since: Date
-  ): Promise<WorldMutation[]> {
+  async getView(campaignId: string): Promise<Record<string, unknown>> {
+    if (!this.prisma) {
+      return Object.fromEntries(this.worldMem.get(campaignId) ?? new Map());
+    }
+
+    const rows = await this.prisma.stateValue.findMany({
+      where: { campaignId, scope: "world", sessionId: "" },
+      select: { varId: true, value: true }
+    });
+
+    const out: Record<string, unknown> = {};
+    for (const row of rows) out[row.varId] = row.value;
+    return out;
+  }
+
+  async getCharacterView(campaignId: string, sessionId: string): Promise<Record<string, unknown>> {
+    const key = `${campaignId}:${sessionId}`;
+    if (!this.prisma) {
+      return Object.fromEntries(this.characterMem.get(key) ?? new Map());
+    }
+
+    const rows = await this.prisma.stateValue.findMany({
+      where: { campaignId, scope: "character", sessionId },
+      select: { varId: true, value: true }
+    });
+    const out: Record<string, unknown> = {};
+    for (const row of rows) out[row.varId] = row.value;
+    return out;
+  }
+
+  async getSessionView(campaignId: string, sessionId: string): Promise<Record<string, unknown>> {
+    const key = `${campaignId}:${sessionId}`;
+    if (!this.prisma) {
+      return Object.fromEntries(this.sessionMem.get(key) ?? new Map());
+    }
+
+    const rows = await this.prisma.stateValue.findMany({
+      where: { campaignId, scope: "session", sessionId },
+      select: { varId: true, value: true }
+    });
+    const out: Record<string, unknown> = {};
+    for (const row of rows) out[row.varId] = row.value;
+    return out;
+  }
+
+  async getRecentMutations(campaignId: string, excludeSessionId: string, since: Date): Promise<WorldMutation[]> {
     if (!this.prisma) return [];
 
-    const rows = await this.prisma.worldFact.findMany({
+    const rows = await this.prisma.stateValue.findMany({
       where: {
         campaignId,
+        scope: "world",
+        sessionId: "",
         lastSessionId: { not: excludeSessionId },
         updatedAt: { gte: since }
       },
       orderBy: { updatedAt: "desc" },
-      select: { key: true, value: true, lastSessionId: true, updatedAt: true }
+      select: { varId: true, value: true, lastSessionId: true, updatedAt: true }
     });
 
-    return rows.map((r) => ({
-      key: r.key,
-      value: r.value,
-      sessionId: r.lastSessionId ?? "",
-      updatedAt: r.updatedAt
+    return rows.map((row) => ({
+      key: row.varId,
+      value: row.value,
+      sessionId: row.lastSessionId ?? "",
+      updatedAt: row.updatedAt
     }));
   }
 
-  // ---------------------------------------------------------------------------
-  // Write
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Apply a world patch atomically.
-   * Each key in the patch is upserted as an individual WorldFact row.
-   * Prisma wraps all upserts in a single transaction.
-   */
-  async applyPatch(
-    campaignId: string,
-    patch: Record<string, unknown>,
-    sessionId: string
-  ): Promise<void> {
+  async applyPatch(campaignId: string, patch: Record<string, unknown>, sessionId: string): Promise<void> {
     const entries = Object.entries(patch);
     if (entries.length === 0) return;
 
     if (!this.prisma) {
-      let bucket = this.mem.get(campaignId);
+      let bucket = this.worldMem.get(campaignId);
       if (!bucket) {
         bucket = new Map();
-        this.mem.set(campaignId, bucket);
+        this.worldMem.set(campaignId, bucket);
       }
-      for (const [key, value] of entries) {
-        bucket.set(key, value);
-      }
+      for (const [key, value] of entries) bucket.set(key, value);
       return;
     }
 
     await this.prisma.$transaction(
-      entries.map(([key, value]) =>
-        this.prisma!.worldFact.upsert({
-          where: { campaignId_key: { campaignId, key } },
+      entries.map(([varId, value]) =>
+        this.prisma!.stateValue.upsert({
+          where: { campaignId_scope_sessionId_varId: { campaignId, scope: "world", sessionId: "", varId } },
           create: {
             campaignId,
-            key,
+            sessionId: "",
+            scope: "world",
+            varId,
             value: value as object,
-            version: 1,
+            revision: 1,
             lastSessionId: sessionId
           },
           update: {
             value: value as object,
-            version: { increment: 1 },
+            revision: { increment: 1 },
             lastSessionId: sessionId
           }
         })
@@ -129,31 +148,111 @@ export class WorldStore {
     );
   }
 
-  /**
-   * Initialise a campaign's world with an initial state object.
-   * Only writes keys that do not already exist (safe to call on restart).
-   */
-  async initCampaign(
-    campaignId: string,
-    initialState: Record<string, unknown>
-  ): Promise<void> {
+  async upsertScopedState(input: {
+    campaignId: string;
+    sessionId: string;
+    scope: "character" | "session";
+    state: Record<string, unknown>;
+    lastSessionId?: string;
+  }): Promise<void> {
+    const entries = Object.entries(input.state);
+    if (entries.length === 0) return;
+
+    const memKey = `${input.campaignId}:${input.sessionId}`;
+    if (!this.prisma) {
+      const bucketMap = input.scope === "character" ? this.characterMem : this.sessionMem;
+      let bucket = bucketMap.get(memKey);
+      if (!bucket) {
+        bucket = new Map();
+        bucketMap.set(memKey, bucket);
+      }
+      for (const [key, value] of entries) bucket.set(key, value);
+      return;
+    }
+
+    await this.prisma.$transaction(
+      entries.map(([varId, value]) =>
+        this.prisma!.stateValue.upsert({
+          where: {
+            campaignId_scope_sessionId_varId: {
+              campaignId: input.campaignId,
+              scope: input.scope,
+              sessionId: input.sessionId,
+              varId
+            }
+          },
+          create: {
+            campaignId: input.campaignId,
+            sessionId: input.sessionId,
+            scope: input.scope,
+            varId,
+            value: value as object,
+            revision: 1,
+            lastSessionId: input.lastSessionId ?? input.sessionId
+          },
+          update: {
+            value: value as object,
+            revision: { increment: 1 },
+            lastSessionId: input.lastSessionId ?? input.sessionId
+          }
+        })
+      )
+    );
+  }
+
+  async logOperations(input: {
+    campaignId: string;
+    sessionId: string;
+    actor: ActorType;
+    source: string;
+    operations: StateOperation[];
+    variables: StateVariable[];
+    valueBefore: Record<string, unknown>;
+    valueAfter: Record<string, unknown>;
+  }): Promise<void> {
+    if (!this.prisma || input.operations.length === 0) return;
+    const defs = new Map(input.variables.map((v) => [v.id, v]));
+
+    await this.prisma.stateMutationLog.createMany({
+      data: input.operations
+        .map((op) => {
+          const def = defs.get(op.varId);
+          if (!def) return null;
+          return {
+            campaignId: input.campaignId,
+            sessionId: input.sessionId,
+            actorType: input.actor,
+            op: op.op,
+            scope: def.scope,
+            varId: op.varId,
+            valueBefore: input.valueBefore[op.varId] as object | undefined,
+            valueAfter: input.valueAfter[op.varId] as object | undefined,
+            source: input.source
+          };
+        })
+        .filter((row): row is NonNullable<typeof row> => Boolean(row))
+    });
+  }
+
+  async initCampaign(campaignId: string, initialState: Record<string, unknown>): Promise<void> {
     const entries = Object.entries(initialState);
     if (entries.length === 0) return;
 
     if (!this.prisma) {
-      if (!this.mem.has(campaignId)) {
-        this.mem.set(campaignId, new Map(entries));
+      if (!this.worldMem.has(campaignId)) {
+        this.worldMem.set(campaignId, new Map(entries));
       }
       return;
     }
 
-    // Use createMany with skipDuplicates so restart is idempotent
-    await this.prisma.worldFact.createMany({
-      data: entries.map(([key, value]) => ({
+    await this.prisma.stateValue.createMany({
+      data: entries.map(([varId, value]) => ({
         campaignId,
-        key,
+        sessionId: "",
+        scope: "world",
+        varId,
         value: value as object,
-        version: 1,
+        revision: 1,
         lastSessionId: null
       })),
       skipDuplicates: true

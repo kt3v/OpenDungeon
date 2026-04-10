@@ -21,7 +21,7 @@ when:
 ---
 
 ## Location Rules (Sprint)
-- Player location is stored in `worldPatch.playerLocation.current`.
+- Player location must be updated via `stateOps` using `varId: "playerLocation.current"`.
 - When moving update all three fields: `current`, `vacuum`, `gravity`.
 - Use snake_case for location IDs.
 

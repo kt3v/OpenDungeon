@@ -24,8 +24,9 @@ OpenDungeon engine  ←  games/your-game/
                           content/
                             modules/     ← Routed Markdown gameplay context (The "How")
                             mechanics/   ← TypeScript logic for hard rules (The "Math")
+                            state/       ← Canonical variable catalog (Strict mode)
                             lore/        ← Static world-building (The "What")
-                            indicators/  ← UI resource tiles (The "View")
+                            indicators/  ← UI tiles bound to `varId`
 ```
 
 ---
@@ -75,10 +76,23 @@ export const campMechanic = defineMechanic({
     rest: {
       description: "Rest at a campfire to recover",
       validate: (ctx) => ctx.worldState.campfireActive ? true : "No campfire nearby.",
-      resolve: async () => ({ message: "You rest by the fire and recover your strength." })
+      resolve: async () => ({
+        message: "You rest by the fire and recover your strength.",
+        stateOps: [{ op: "set", varId: "hp", value: 100 }]
+      })
     }
   }
 });
+```
+
+### 3. Strict State (Required)
+Declare variables once in `content/state/*.json`. DM, mechanics, UI indicators, and persistence all use these IDs.
+
+```json
+[
+  { "id": "hp", "scope": "character", "type": "number", "defaultValue": 100, "writableBy": ["mechanic"] },
+  { "id": "oxygen", "scope": "character", "type": "number", "defaultValue": 100, "writableBy": ["dm", "mechanic"] }
+]
 ```
 
 ### 3. World Identity (Setting)

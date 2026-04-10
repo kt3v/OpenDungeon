@@ -1,8 +1,7 @@
 {
   "id": "ammo",
   "label": "Ammo",
-  "source": "characterState",
-  "stateKey": "ammo",
+  "varId": "ammo",
   "type": "number",
   "defaultValue": 30,
   "description": "Ammunition. A rare and valuable resource on Sprint."

@@ -117,7 +117,7 @@ You are the Dungeon Master for {{campaignTitle}}.
 
 ## Rules
 - Keep the tone grim and terse.
-- Prefer small, targeted worldPatch updates.
+- Prefer small, targeted `stateOps` updates on declared `varId`s.
 - Suggested actions must be concrete and immediately playable.
 ```
 
@@ -136,7 +136,7 @@ Controls how the DM responds and how context modules are routed:
     "maxSelectedModules": 4
   },
   "toolPolicy": {
-    "allowedTools": ["update_world_state", "set_summary", "set_suggested_actions"],
+    "allowedTools": ["update_state", "set_summary", "set_suggested_actions"],
     "requireSummary": true,
     "requireSuggestedActions": true
   },
@@ -200,6 +200,20 @@ The initial `worldState` for brand-new campaigns.
 
 ---
 
+### `state/*.json` — canonical state catalog (required)
+
+Declare variables used by DM, mechanics, indicators, and persistence.
+
+```json
+[
+  { "id": "hp", "scope": "character", "type": "number", "defaultValue": 100, "writableBy": ["mechanic"] },
+  { "id": "location", "scope": "session", "type": "text", "defaultValue": "", "writableBy": ["dm", "mechanic"] },
+  { "id": "act", "scope": "world", "type": "number", "defaultValue": 1, "writableBy": ["dm", "mechanic"] }
+]
+```
+
+---
+
 ### `indicators/*.json` — UI indicators
 
 Map state to visible UI elements.
@@ -208,16 +222,10 @@ Map state to visible UI elements.
 {
   "id": "hp",
   "label": "HP",
-  "source": "characterState",
-  "stateKey": "hp",
+  "varId": "hp",
   "type": "number"
 }
 ```
-
-| `source` | Reads from |
-|----------|-----------|
-| `"characterState"` | Session character state (hp, gold, inventory) |
-| `"worldState"` | Shared campaign state (global flags, reputations) |
 
 ---
 

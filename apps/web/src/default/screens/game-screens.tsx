@@ -3,14 +3,11 @@ import ReactMarkdown from "react-markdown";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type ResourceSchema = {
+type ResolvedIndicator = {
   id: string;
   label: string;
-  source: "characterState" | "worldState";
-  stateKey: string;
   type: "number" | "text" | "list" | "boolean";
-  defaultValue?: string | number | boolean | unknown[];
-  display?: "compact" | "badge";
+  value: unknown;
 };
 
 type SessionCharacter = {
@@ -488,10 +485,8 @@ export const ActionsScreen: FC<{
   setActionText: (v: string) => void;
   onSendAction: (prompt: string) => void;
   onBack: () => void;
-  resourceSchemas: ResourceSchema[];
+  resolvedIndicators: ResolvedIndicator[];
   sessionCharacter: SessionCharacter;
-  characterState: Record<string, unknown>;
-  worldState: Record<string, unknown>;
 }> = ({
   actionText,
   suggestedActions,
@@ -503,10 +498,8 @@ export const ActionsScreen: FC<{
   setActionText,
   onSendAction,
   onBack,
-  resourceSchemas,
+  resolvedIndicators,
   sessionCharacter,
-  characterState,
-  worldState,
 }) => {
   const [activeTab, setActiveTab] = useState<"scene" | "history">("scene");
   const hasHistory = events.length > 1;
@@ -516,11 +509,6 @@ export const ActionsScreen: FC<{
       setActiveTab("scene");
     }
   }, [activeTab, hasHistory]);
-
-  const getResourceValue = (schema: ResourceSchema): unknown => {
-    const source = schema.source === "characterState" ? characterState : worldState;
-    return source[schema.stateKey] ?? schema.defaultValue;
-  };
 
   return (
     <div className="screen-container">
@@ -533,14 +521,13 @@ export const ActionsScreen: FC<{
           </div>
         </ScreenHeader>
 
-        {resourceSchemas.length > 0 && (
+        {resolvedIndicators.length > 0 && (
           <div className="resource-indicators">
-            {resourceSchemas.map((schema) => {
-              const value = getResourceValue(schema);
+            {resolvedIndicators.map((indicator) => {
               return (
-                <div key={schema.id} className="resource-indicator">
-                  <span className="resource-label">{schema.label}</span>
-                  <span className="resource-value">{String(value)}</span>
+                <div key={indicator.id} className="resource-indicator">
+                  <span className="resource-label">{indicator.label}</span>
+                  <span className="resource-value">{String(indicator.value)}</span>
                 </div>
               );
             })}

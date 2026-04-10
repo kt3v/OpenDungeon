@@ -7,7 +7,7 @@
     "maxSelectedModules": 6
   },
   "toolPolicy": {
-    "allowedTools": ["update_world_state", "set_summary", "set_suggested_actions"],
+    "allowedTools": ["update_state", "set_summary", "set_suggested_actions"],
     "requireSummary": true,
     "requireSuggestedActions": true
   },

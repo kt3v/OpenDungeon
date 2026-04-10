@@ -36,6 +36,8 @@ model Campaign {
   eventLog        EventLog[]
   loreEntries     LoreEntry[]
   milestones      Milestone[]
+  stateValues     StateValue[]
+  stateMutations  StateMutationLog[]
 
   @@index([tenantId])
 }
@@ -73,6 +75,7 @@ model Session {
   archive        String?       @db.Text
   events         EventLog[]
   actionQueue    ActionQueue[]
+  stateMutations StateMutationLog[]
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -100,6 +103,63 @@ model WorldFact {
   @@unique([campaignId, key])
   @@index([campaignId])
   @@index([campaignId, updatedAt])
+}
+
+model StateVariableDef {
+  id            String   @id @default(uuid()) @db.Uuid
+  moduleName    String
+  moduleVersion String
+  varId         String
+  scope         String
+  valueType     String
+  defaultValue  Json?
+  writableBy    Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([moduleName, moduleVersion, varId])
+  @@index([moduleName, moduleVersion])
+}
+
+model StateValue {
+  id            String   @id @default(uuid()) @db.Uuid
+  campaignId    String   @db.Uuid
+  sessionId     String   @default("")
+  scope         String
+  varId         String
+  value         Json
+  revision      Int      @default(1)
+  lastSessionId String?  @db.Uuid
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, scope, sessionId, varId])
+  @@index([campaignId, scope])
+  @@index([campaignId, updatedAt])
+  @@index([sessionId, scope])
+}
+
+model StateMutationLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  campaignId    String   @db.Uuid
+  sessionId     String?  @db.Uuid
+  actorType     String
+  op            String
+  scope         String
+  varId         String
+  valueBefore   Json?
+  valueAfter    Json?
+  source        String?
+  createdAt     DateTime @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  session  Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId, createdAt])
+  @@index([sessionId, createdAt])
+  @@index([campaignId, scope, varId])
 }
 
 /// Async action queue — one row per submitted player action.

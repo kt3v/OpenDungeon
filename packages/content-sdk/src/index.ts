@@ -3,6 +3,7 @@ import type { ModuleManifest, SessionEndReason } from "@opendungeon/shared";
 export {
   loadLoreFilesSync,
   loadResourcesDirSync,
+  loadStateCatalogDirSync,
   loadContextModulesDirSync,
   loadClassesFileSync,
   loadDmPromptFileSync,
@@ -49,18 +50,8 @@ export interface PlayerAction {
 
 export interface ActionResult {
   message: string;
-  /**
-   * Mutations to the canonical campaign world state — visible to ALL players.
-   * Use this for shared world facts: items placed in the world, NPCs killed,
-   * doors opened, global quest flags, etc.
-   */
-  worldPatch?: Record<string, unknown>;
-  /**
-   * Mutations to this character's unified state — merged into characterState.
-   * Contains all character data: hp, level, attributes, inventory + ephemeral data.
-   * Never bleeds into the shared world.
-   */
-  characterState?: Record<string, unknown>;
+  /** Typed state operations validated against module state definitions. */
+  stateOps?: StateOperation[];
   /**
    * Player's current location. Personal state — each player has their own location
    * even in shared campaigns. Updated when the DM moves the player.
@@ -85,11 +76,30 @@ export interface ActionResult {
 }
 
 export interface StatePatch {
-  worldPatch?: Record<string, unknown>;
-  /** Character-local mutations — merged into this session's characterState. */
-  characterState?: Record<string, unknown>;
-  /** Player's current location. Personal state for this session only. */
-  location?: string;
+  stateOps?: StateOperation[];
+}
+
+export type StateScope = "world" | "character" | "session";
+export type StateValueType = "number" | "text" | "boolean" | "list" | "json";
+
+export interface StateVariable {
+  id: string;
+  scope: StateScope;
+  type: StateValueType;
+  defaultValue?: unknown;
+  writableBy?: Array<"dm" | "mechanic" | "system">;
+}
+
+export interface StateCatalog {
+  variables: StateVariable[];
+}
+
+export type StateOperationType = "set" | "inc" | "dec" | "append" | "remove";
+
+export interface StateOperation {
+  op: StateOperationType;
+  varId: string;
+  value?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +249,7 @@ export interface GameModule {
    * Resources are display-only — data is written by mechanics as usual.
    */
   resources?: ResourceSchema[];
+  state?: StateCatalog;
 }
 
 /** Type-safe helper — returns the module as-is (identity). */
@@ -273,33 +284,22 @@ export const defineMechanics = (ext: TypeScriptModuleExtension): TypeScriptModul
 /**
  * Declares a character or world resource that should be displayed as a UI
  * indicator in the game client. Resources are read-only display constructs —
- * the underlying data is written by mechanics via worldPatch / characterPatch.
+ * the underlying data is written via strict stateOps on declared variables.
  *
  * @example
  * // indicators/hp.json
- * { "id": "hp", "label": "HP", "source": "character", "stateKey": "hp", "type": "number" }
+ * { "id": "hp", "label": "HP", "varId": "hp", "type": "number" }
  *
  * // indicators/inventory.json
- * { "id": "inventory", "label": "Inventory", "source": "characterState",
- *   "stateKey": "inventory", "type": "list", "defaultValue": [] }
+ * { "id": "inventory", "label": "Inventory", "varId": "inventory", "type": "list", "defaultValue": [] }
  */
 export interface ResourceSchema {
   /** Unique identifier. Used as a React key in the UI. */
   id: string;
   /** Human-readable label shown in the indicator: "HP", "Gold", "Inventory". */
   label: string;
-  /**
-   * Where the value lives in the state response:
-   *   "characterState" → characterState  (unified character state: hp, level, etc.)
-   *   "worldState"     → worldState      (shared campaign state)
-   *   "session"        → session         (session-level fields like location)
-   */
-  source: "characterState" | "worldState" | "session";
-  /**
-   * Dot-path to the value within the source object.
-   * Examples: "hp", "level", "gold", "inventory", "sessionLoot.length"
-   */
-  stateKey: string;
+  /** Canonical state variable id this indicator displays. */
+  varId: string;
   /** How the UI should format the value. */
   type: "number" | "text" | "list" | "boolean";
   /**
@@ -480,7 +480,7 @@ export interface GameModuleSetting {
 // ---------------------------------------------------------------------------
 
 export type DungeonMasterToolName =
-  | "update_world_state"
+  | "update_state"
   | "set_summary"
   | "set_suggested_actions";
 
@@ -495,7 +495,7 @@ export interface DungeonMasterSummaryPatch {
 }
 
 export type NormalizedDungeonMasterToolCall =
-  | { tool: "update_world_state"; args: { patch: Record<string, unknown> } }
+  | { tool: "update_state"; args: { operations: StateOperation[] } }
   | { tool: "set_summary"; args: DungeonMasterSummaryPatch }
   | { tool: "set_suggested_actions"; args: { actions: SuggestedAction[] } };
 
@@ -526,7 +526,28 @@ export interface NormalizeDungeonMasterToolCallOptions {
   guardrails?: Partial<DungeonMasterGuardrails>;
   fallbackSummary?: string;
   toolPolicy?: DungeonMasterToolPolicy;
+  stateCatalog?: StateCatalog;
 }
+
+const sanitizeStateOperations = (
+  input: unknown,
+  options: { stateCatalog?: StateCatalog } = {}
+): StateOperation[] => {
+  if (!Array.isArray(input)) return [];
+  const vars = new Map((options.stateCatalog?.variables ?? []).map((v) => [v.id, v]));
+  const out: StateOperation[] = [];
+
+  for (const item of input) {
+    if (!isRecord(item)) continue;
+    const op = typeof item.op === "string" ? item.op : "";
+    const varId = typeof item.varId === "string" ? item.varId.trim() : "";
+    if (!varId || !vars.has(varId)) continue;
+    if (op !== "set" && op !== "inc" && op !== "dec" && op !== "append" && op !== "remove") continue;
+    out.push({ op, varId, value: item.value } as StateOperation);
+  }
+
+  return out;
+};
 
 const DEFAULT_FALLBACK_ACTION: SuggestedAction = {
   id: "continue",
@@ -646,10 +667,14 @@ export const normalizeDungeonMasterToolCalls = (
 
     const args = isRecord(item.args) ? item.args : {};
 
-    if (item.tool === "update_world_state") {
+    if (item.tool === "update_state") {
+      const operations = sanitizeStateOperations(args.operations, {
+        stateCatalog: options.stateCatalog
+      });
+      if (operations.length === 0) continue;
       output.push({
-        tool: "update_world_state",
-        args: { patch: sanitizeDungeonMasterWorldPatch(args.patch, { guardrails }) }
+        tool: "update_state",
+        args: { operations }
       });
       continue;
     }

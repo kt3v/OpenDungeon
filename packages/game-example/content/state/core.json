@@ -1,0 +1,36 @@
+[
+  { "id": "hp", "scope": "character", "type": "number", "defaultValue": 100, "writableBy": ["mechanic"] },
+  { "id": "oxygen", "scope": "character", "type": "number", "defaultValue": 100, "writableBy": ["dm", "mechanic"] },
+  { "id": "ammo", "scope": "character", "type": "number", "defaultValue": 30, "writableBy": ["dm", "mechanic"] },
+  { "id": "inventory", "scope": "character", "type": "list", "defaultValue": [], "writableBy": ["mechanic"] },
+  { "id": "gold", "scope": "character", "type": "number", "defaultValue": 10, "writableBy": ["mechanic"] },
+  { "id": "sessionLoot", "scope": "session", "type": "list", "defaultValue": [], "writableBy": ["mechanic"] },
+  { "id": "nearExit", "scope": "session", "type": "boolean", "defaultValue": false, "writableBy": ["mechanic"] },
+  { "id": "location", "scope": "session", "type": "text", "defaultValue": "", "writableBy": ["dm", "mechanic"] },
+
+  { "id": "mission.phase", "scope": "world", "type": "text", "defaultValue": "entry", "writableBy": ["dm", "mechanic"] },
+  { "id": "mission.timeRemaining", "scope": "world", "type": "number", "defaultValue": 360, "writableBy": ["dm", "mechanic"] },
+  { "id": "mission.objectivesFound", "scope": "world", "type": "number", "defaultValue": 0, "writableBy": ["dm", "mechanic"] },
+  { "id": "mission.objectivesTotal", "scope": "world", "type": "number", "defaultValue": 3, "writableBy": ["system"] },
+
+  { "id": "ship.selfDestructActive", "scope": "world", "type": "boolean", "defaultValue": false, "writableBy": ["dm", "mechanic"] },
+  { "id": "velocity.mood", "scope": "world", "type": "text", "defaultValue": "amused", "writableBy": ["dm", "mechanic"] },
+  { "id": "velocity.awareness", "scope": "world", "type": "number", "defaultValue": 10, "writableBy": ["dm", "mechanic"] },
+  { "id": "velocity.lastMessage", "scope": "world", "type": "text", "defaultValue": "none", "writableBy": ["dm", "mechanic"] },
+  { "id": "velocity.tauntCount", "scope": "world", "type": "number", "defaultValue": 0, "writableBy": ["dm", "mechanic"] },
+
+  { "id": "playerLocation.current", "scope": "world", "type": "text", "defaultValue": "landing_platform", "writableBy": ["dm", "mechanic"] },
+  { "id": "playerLocation.vacuum", "scope": "world", "type": "boolean", "defaultValue": true, "writableBy": ["dm", "mechanic"] },
+  { "id": "playerLocation.oxygenAvailable", "scope": "world", "type": "boolean", "defaultValue": true, "writableBy": ["dm", "mechanic"] },
+  { "id": "playerLocation.gravity", "scope": "world", "type": "boolean", "defaultValue": false, "writableBy": ["dm", "mechanic"] },
+
+  { "id": "extractionReady", "scope": "world", "type": "boolean", "defaultValue": false, "writableBy": ["dm", "mechanic"] },
+  { "id": "loot.found", "scope": "world", "type": "list", "defaultValue": [], "writableBy": ["dm", "mechanic"] },
+  { "id": "safeToRest", "scope": "world", "type": "boolean", "defaultValue": false, "writableBy": ["dm", "mechanic"] },
+  { "id": "rest.lastOutcome", "scope": "world", "type": "text", "defaultValue": "none", "writableBy": ["dm", "mechanic"] },
+  { "id": "revival.tokens", "scope": "world", "type": "number", "defaultValue": 1, "writableBy": ["dm", "mechanic"] },
+  { "id": "revival.lastUse", "scope": "world", "type": "text", "defaultValue": "never", "writableBy": ["dm", "mechanic"] },
+  { "id": "lastObservation", "scope": "world", "type": "text", "defaultValue": "none", "writableBy": ["dm"] },
+  { "id": "lastSound", "scope": "world", "type": "text", "defaultValue": "none", "writableBy": ["dm", "mechanic"] },
+  { "id": "stealthActive", "scope": "world", "type": "boolean", "defaultValue": false, "writableBy": ["dm", "mechanic"] }
+]

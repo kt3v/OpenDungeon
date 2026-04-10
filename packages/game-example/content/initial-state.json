@@ -1,50 +1,24 @@
 {
-  "mission": {
-    "phase": "entry",
-    "timeRemaining": 360,
-    "objectivesFound": 0,
-    "objectivesTotal": 3,
-    "extractionReady": false
-  },
-  "ship": {
-    "integrity": 78,
-    "selfDestructActive": false,
-    "sections": {
-      "landing": "vacuum",
-      "spine": "breached",
-      "engineering": "sealed",
-      "cryo": "sealed",
-      "armory": "locked",
-      "core": "sealed"
-    }
-  },
-  "velocity": {
-    "awareness": 10,
-    "mood": "amused",
-    "lastMessage": "none",
-    "tauntCount": 0
-  },
-  "playerLocation": {
-    "current": "landing_platform",
-    "oxygenAvailable": true,
-    "gravity": false,
-    "vacuum": true
-  },
-  "loot": {
-    "found": [],
-    "archonCrystal": false,
-    "pulseCode": false,
-    "velocityKey": false
-  },
-  "survivors": {
-    "found": [],
-    "drVossLocated": false,
-    "marcusLocated": false
-  },
-  "threats": {
-    "vyrPresent": false,
-    "sylphPresent": false,
-    "androidsPresent": false,
-    "alertLevel": 0
-  }
+  "mission.phase": "entry",
+  "mission.timeRemaining": 360,
+  "mission.objectivesFound": 0,
+  "mission.objectivesTotal": 3,
+  "ship.selfDestructActive": false,
+  "velocity.mood": "amused",
+  "velocity.awareness": 10,
+  "velocity.lastMessage": "none",
+  "velocity.tauntCount": 0,
+  "playerLocation.current": "landing_platform",
+  "playerLocation.vacuum": true,
+  "playerLocation.oxygenAvailable": true,
+  "playerLocation.gravity": false,
+  "extractionReady": false,
+  "loot.found": [],
+  "safeToRest": false,
+  "rest.lastOutcome": "none",
+  "revival.tokens": 1,
+  "revival.lastUse": "never",
+  "lastObservation": "none",
+  "lastSound": "none",
+  "stealthActive": false
 }

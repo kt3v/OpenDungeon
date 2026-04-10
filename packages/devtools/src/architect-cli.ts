@@ -258,12 +258,12 @@ const lintArchitectOperations = async (
       const parsed = JSON.parse(op.content) as unknown;
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
       const obj = parsed as Record<string, unknown>;
-      if (obj.source === "characterState" && typeof obj.stateKey === "string" && obj.stateKey.trim()) {
-        const key = obj.stateKey.trim();
+      if (typeof obj.varId === "string" && obj.varId.trim()) {
+        const key = obj.varId.trim();
         if (!characterRefs.has(key)) {
           issues.push({
             severity: "medium",
-            message: `indicator \`${op.path}\` uses characterState key \`${key}\` but module references/provides do not mention character:${key}`
+            message: `indicator \`${op.path}\` uses varId \`${key}\` but module references/provides do not mention character:${key}`
           });
         }
       }

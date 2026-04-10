@@ -1,8 +1,7 @@
 {
   "id": "oxygen",
   "label": "Oxygen",
-  "source": "characterState",
-  "stateKey": "oxygen",
+  "varId": "oxygen",
   "type": "number",
   "defaultValue": 100,
   "description": "Oxygen reserves. Depleted faster in vacuum chambers. At 0, suffocation occurs."

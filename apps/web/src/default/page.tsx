@@ -6,14 +6,11 @@ import {
   SessionScreen,
 } from "./screens/game-screens";
 
-type ResourceSchema = {
+type ResolvedIndicator = {
   id: string;
   label: string;
-  source: "characterState" | "worldState";
-  stateKey: string;
   type: "number" | "text" | "list" | "boolean";
-  defaultValue?: string | number | boolean | unknown[];
-  display?: "compact" | "badge";
+  value: unknown;
 };
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -77,9 +74,7 @@ export default function HomePage() {
   const [sessionSummary, setSessionSummary] = useState("");
   const [isActionPending, setIsActionPending] = useState(false);
   const [serverStatus, setServerStatus] = useState<string | null>(null);
-  const [resourceSchemas, setResourceSchemas] = useState<ResourceSchema[]>([]);
-  const [characterState, setCharacterState] = useState<Record<string, unknown>>({});
-  const [worldState, setWorldState] = useState<Record<string, unknown>>({});
+  const [resolvedIndicators, setResolvedIndicators] = useState<ResolvedIndicator[]>([]);
 
   // Navigation
   const [activeScreen, setActiveScreen] = useState<ScreenId>("auth");
@@ -300,9 +295,7 @@ export default function HomePage() {
       const data = await request(`/sessions/${sessionId}/state`, { headers: authHeaders });
       setEvents(data.events ?? []);
       setSessionSummary(typeof data.session?.summary === "string" ? data.session.summary : "");
-      setResourceSchemas(data.resourceSchema ?? []);
-      setCharacterState(data.characterState ?? {});
-      setWorldState(data.worldState ?? {});
+      setResolvedIndicators(data.resolvedIndicators ?? []);
     } catch {
       // silent
     }
@@ -381,8 +374,6 @@ export default function HomePage() {
             if (data.events?.length > events.length) {
               setEvents(data.events);
               setSessionSummary(typeof data.session?.summary === "string" ? data.session.summary : "");
-              setCharacterState(data.characterState ?? {});
-              setWorldState(data.worldState ?? {});
               await loadSuggestedActions(selectedSessionId);
             }
           } catch {
@@ -1265,10 +1256,8 @@ export default function HomePage() {
           setActionText={setActionText}
           onSendAction={(prompt) => void submitAction(prompt)}
           onBack={() => setActiveScreen("session")}
-          resourceSchemas={resourceSchemas}
+          resolvedIndicators={resolvedIndicators}
           sessionCharacter={sessions.find(s => s.id === selectedSessionId)?.character ?? { name: "", className: "", level: 1, hp: 0 }}
-          characterState={characterState}
-          worldState={worldState}
         />
       )}
     </main>

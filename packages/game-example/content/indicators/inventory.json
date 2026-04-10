@@ -1,8 +1,7 @@
 {
   "id": "inventory",
   "label": "Inventory",
-  "source": "characterState",
-  "stateKey": "inventory",
+  "varId": "inventory",
   "type": "list",
   "defaultValue": []
 }

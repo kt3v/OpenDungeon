@@ -3,11 +3,12 @@ import {
   renderDungeonMasterPromptTemplate,
   sanitizeDungeonMasterSuggestedActions,
   sanitizeDungeonMasterSummaryPatch,
-  sanitizeDungeonMasterWorldPatch,
   type DungeonMasterGuardrails,
   type DungeonMasterModuleConfig,
   type DungeonMasterSummaryPatch,
   type DungeonMasterToolPolicy,
+  type StateCatalog,
+  type StateOperation,
   type SuggestedAction
 } from "@opendungeon/content-sdk";
 import { createProviderFromEnv, type ChatMessage, type LlmProvider } from "@opendungeon/providers-llm";
@@ -30,6 +31,7 @@ export interface DmTurnInput {
   playerId: string;
   actionText: string;
   worldState: Record<string, unknown>;
+  characterState: Record<string, unknown>;
   /** Player's current location - personal state, not shared across campaign */
   location: string;
   recentEvents: Array<{
@@ -48,6 +50,7 @@ export interface DmTurnInput {
    * action and uses its deterministic result instead of the DM's narrative.
    */
   availableMechanicActions?: MechanicToolEntry[];
+  stateCatalog?: StateCatalog;
   trace?: {
     recordPhase?: (phase: string, durationMs: number) => void;
     setMeta?: (key: string, value: unknown) => void;
@@ -56,7 +59,7 @@ export interface DmTurnInput {
 
 export interface DmTurnResult {
   message: string;
-  worldPatch?: Record<string, unknown>;
+  stateOps?: StateOperation[];
   /** Player's updated location - personal state, not shared across campaign */
   location?: string;
   summaryPatch?: DungeonMasterSummaryPatch;
@@ -155,7 +158,7 @@ export class DungeonMasterRuntime {
               }
             }
           : {}),
-        worldPatch: "object",
+        stateOps: [{ op: "set|inc|dec|append|remove", varId: "string", value: "unknown" }],
         summaryPatch: {
           shortSummary: "string",
           latestBeat: "string"
@@ -166,6 +169,10 @@ export class DungeonMasterRuntime {
         actionText: input.actionText,
         location: input.location,
         worldState: worldStateForPrompt,
+        characterState: input.characterState,
+        writableStateVariables: (input.stateCatalog?.variables ?? [])
+          .filter((v) => (v.writableBy ?? ["dm", "mechanic", "system"]).includes("dm"))
+          .map((v) => ({ id: v.id, scope: v.scope, type: v.type })),
         ...(input.summary?.trim() ? { summary: input.summary.trim() } : {}),
         ...(input.contextualLore?.trim() ? { contextualLore: input.contextualLore.trim() } : {}),
         ...(recentActionTexts.length > 0 ? { recentActionTexts } : {})
@@ -183,6 +190,7 @@ export class DungeonMasterRuntime {
     input.trace?.setMeta?.("dm.recentEventsCount", input.recentEvents.length);
     input.trace?.setMeta?.("dm.recentActionTextsCount", recentActionTexts.length);
     input.trace?.setMeta?.("dm.availableMechanicActionsCount", input.availableMechanicActions?.length ?? 0);
+    input.trace?.setMeta?.("dm.stateVariableCount", input.stateCatalog?.variables.length ?? 0);
     input.trace?.setMeta?.("dm.worldStateKeys", Object.keys(input.worldState).length);
     input.trace?.setMeta?.("dm.worldStatePromptKeys", Object.keys(worldStateForPrompt).length);
     input.trace?.setMeta?.(
@@ -240,6 +248,7 @@ export class DungeonMasterRuntime {
           fallbackSummary: input.summary,
           fallbackMessage: input.actionText,
           toolPolicy,
+          stateCatalog: input.stateCatalog,
           defaultSuggestedActions,
           trace: input.trace
         });
@@ -296,6 +305,7 @@ const parseDmResult = (
     fallbackSummary?: string;
     fallbackMessage?: string;
     toolPolicy?: DungeonMasterToolPolicy;
+    stateCatalog?: StateCatalog;
     defaultSuggestedActions?: SuggestedAction[];
     trace?: {
       recordPhase?: (phase: string, durationMs: number) => void;
@@ -343,7 +353,8 @@ const parseDmResult = (
   const toolCalls = normalizeDungeonMasterToolCalls(obj.toolCalls, {
     guardrails: options.guardrails,
     fallbackSummary: options.fallbackSummary,
-    toolPolicy: options.toolPolicy
+    toolPolicy: options.toolPolicy,
+    stateCatalog: options.stateCatalog
   });
   if (toolCalls.length > 0) {
     applyToolCalls(result, toolCalls, {
@@ -352,11 +363,21 @@ const parseDmResult = (
     });
   }
 
-  const worldPatch = sanitizeDungeonMasterWorldPatch(obj.worldPatch, {
-    guardrails: options.guardrails
-  });
-  if (Object.keys(worldPatch).length > 0) {
-    result.worldPatch = worldPatch;
+  if (Array.isArray(obj.stateOps)) {
+    const syntheticCalls = normalizeDungeonMasterToolCalls(
+      [{ tool: "update_state", args: { operations: obj.stateOps } }],
+      {
+        guardrails: options.guardrails,
+        toolPolicy: options.toolPolicy,
+        stateCatalog: options.stateCatalog
+      }
+    );
+    if (syntheticCalls.length > 0) {
+      applyToolCalls(result, syntheticCalls, {
+        guardrails: options.guardrails,
+        defaultSuggestedActions: options.defaultSuggestedActions
+      });
+    }
   }
 
   const summaryPatch = sanitizeDungeonMasterSummaryPatch(obj.summaryPatch, {
@@ -429,15 +450,8 @@ const applyToolCalls = (
   } = {}
 ): void => {
   for (const call of toolCalls) {
-    if (call.tool === "update_world_state") {
-      const merged = {
-        ...(result.worldPatch ?? {}),
-        ...call.args.patch
-      };
-      const sanitized = sanitizeDungeonMasterWorldPatch(merged, { guardrails: options.guardrails });
-      if (Object.keys(sanitized).length > 0) {
-        result.worldPatch = sanitized;
-      }
+    if (call.tool === "update_state") {
+      result.stateOps = [...(result.stateOps ?? []), ...call.args.operations];
       continue;
     }
 

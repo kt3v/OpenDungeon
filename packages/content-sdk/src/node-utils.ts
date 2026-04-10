@@ -8,6 +8,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type {
   ResourceSchema,
+  StateCatalog,
+  StateVariable,
   CharacterTemplate,
   DungeonMasterModuleConfig,
   DungeonMasterContextModule,
@@ -303,7 +305,6 @@ export const loadContextModulesDirSync = (dirPath: string): DungeonMasterContext
  * });
  * ```
  */
-const VALID_RESOURCE_SOURCES = new Set(["characterState", "worldState", "session"]);
 const VALID_RESOURCE_TYPES = new Set(["number", "text", "list", "boolean"]);
 
 const isResourceSchema = (value: unknown): value is ResourceSchema => {
@@ -312,9 +313,21 @@ const isResourceSchema = (value: unknown): value is ResourceSchema => {
   return (
     typeof obj.id === "string" && obj.id.trim().length > 0 &&
     typeof obj.label === "string" && obj.label.trim().length > 0 &&
-    typeof obj.source === "string" && VALID_RESOURCE_SOURCES.has(obj.source) &&
-    typeof obj.stateKey === "string" && obj.stateKey.trim().length > 0 &&
+    typeof obj.varId === "string" && obj.varId.trim().length > 0 &&
     typeof obj.type === "string" && VALID_RESOURCE_TYPES.has(obj.type)
+  );
+};
+
+const VALID_STATE_SCOPES = new Set(["world", "character", "session"]);
+const VALID_STATE_TYPES = new Set(["number", "text", "boolean", "list", "json"]);
+
+const isStateVariable = (value: unknown): value is StateVariable => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const obj = value as Record<string, unknown>;
+  return (
+    typeof obj.id === "string" && obj.id.trim().length > 0 &&
+    typeof obj.scope === "string" && VALID_STATE_SCOPES.has(obj.scope) &&
+    typeof obj.type === "string" && VALID_STATE_TYPES.has(obj.type)
   );
 };
 
@@ -367,8 +380,7 @@ export const loadResourcesDirSync = (dirPath: string): ResourceSchema[] => {
       } else {
         console.warn(
           `[content-sdk] Skipping invalid resource in "${file}" — ` +
-            `must have string "id", "label", "stateKey", ` +
-            `source: "characterState"|"worldState"|"session", ` +
+            `must have string "id", "label", "varId", ` +
             `and type: "number"|"text"|"list"|"boolean".`
         );
       }
@@ -376,6 +388,47 @@ export const loadResourcesDirSync = (dirPath: string): ResourceSchema[] => {
   }
 
   return results;
+};
+
+export const loadStateCatalogDirSync = (dirPath: string): StateCatalog => {
+  let files: string[];
+  try {
+    files = readdirSync(dirPath);
+  } catch {
+    return { variables: [] };
+  }
+
+  const variables: StateVariable[] = [];
+
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+
+    const fullPath = join(dirPath, file);
+    let raw: unknown;
+    try {
+      raw = JSON.parse(readFileSync(fullPath, "utf8"));
+    } catch (err) {
+      console.warn(`[content-sdk] Failed to parse state file "${file}": ${String(err)}`);
+      continue;
+    }
+
+    const items = Array.isArray(raw) ? raw : [raw];
+    for (const item of items) {
+      if (isStateVariable(item)) {
+        variables.push(item);
+      } else {
+        console.warn(
+          `[content-sdk] Skipping invalid state variable in "${file}" — ` +
+            `must have string "id", scope: "world"|"character"|"session", ` +
+            `and type: "number"|"text"|"boolean"|"list"|"json".`
+        );
+      }
+    }
+  }
+
+  return {
+    variables: Array.from(new Map(variables.map((v) => [v.id, v])).values())
+  };
 };
 
 // ---------------------------------------------------------------------------

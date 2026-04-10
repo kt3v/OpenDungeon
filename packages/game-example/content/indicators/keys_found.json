@@ -1,8 +1,7 @@
 {
   "id": "keys_found",
   "label": "Keys",
-  "source": "worldState",
-  "stateKey": "mission.objectivesFound",
+  "varId": "mission.objectivesFound",
   "type": "number",
   "defaultValue": 0,
   "description": "Key Items Collected (out of 3): Archon Crystal, Pulse Code, Velocity Key."

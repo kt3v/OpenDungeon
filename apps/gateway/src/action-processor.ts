@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import type { EngineRuntime, LoreEntryPayload } from "@opendungeon/engine-core";
 import { extractLore } from "@opendungeon/engine-core";
+import type { StateOperation, StateVariable } from "@opendungeon/content-sdk";
 import { createProviderFromEnv } from "@opendungeon/providers-llm";
 import type { SessionEndReason } from "@opendungeon/shared";
 import type { ArchitectRuntime, ArchitectOperationExecutor } from "@opendungeon/architect";
@@ -24,6 +25,7 @@ export interface QueuedActionResult {
     message: string;
   };
   characterState: Record<string, unknown>;
+  worldState?: Record<string, unknown>;
   sessionEnded?: { reason: SessionEndReason };
 }
 
@@ -140,11 +142,65 @@ export class ActionProcessor {
     private readonly prisma: PrismaClient | null,
     private readonly callbacks: ProcessorCallbacks,
     private readonly backgroundLoreProvider: ReturnType<typeof createProviderFromEnv>,
+    private readonly stateVariables: StateVariable[],
     private readonly architect?: {
       runtime: ArchitectRuntime;
       executor: ArchitectOperationExecutor;
     }
   ) {}
+
+  private applyStateOperations(input: {
+    operations: StateOperation[];
+    worldState: Record<string, unknown>;
+    characterState: Record<string, unknown>;
+    location: string;
+    actor: "dm" | "mechanic" | "system";
+  }): {
+    worldState: Record<string, unknown>;
+    worldPatch: Record<string, unknown>;
+    characterState: Record<string, unknown>;
+    location: string;
+  } {
+    const defs = new Map(this.stateVariables.map((v) => [v.id, v]));
+    const worldState = { ...input.worldState };
+    const worldPatch: Record<string, unknown> = {};
+    const characterState = { ...input.characterState };
+    let location = input.location;
+
+    for (const op of input.operations) {
+      const def = defs.get(op.varId);
+      if (!def) continue;
+      if (!(def.writableBy ?? ["dm", "mechanic", "system"]).includes(input.actor)) continue;
+      const target = def.scope === "world" ? worldState : characterState;
+      const current = target[def.id];
+
+      if (op.op === "set") {
+        target[def.id] = op.value;
+      } else if (op.op === "inc" || op.op === "dec") {
+        const delta = Number(op.value);
+        if (!Number.isFinite(delta)) continue;
+        const prev = typeof current === "number" ? current : Number(current ?? 0);
+        if (!Number.isFinite(prev)) continue;
+        target[def.id] = op.op === "inc" ? prev + delta : prev - delta;
+      } else if (op.op === "append") {
+        const prev = Array.isArray(current) ? current : [];
+        target[def.id] = [...prev, op.value];
+      } else if (op.op === "remove") {
+        const prev = Array.isArray(current) ? current : [];
+        target[def.id] = prev.filter((item) => JSON.stringify(item) !== JSON.stringify(op.value));
+      }
+
+      if (def.scope === "world") {
+        worldPatch[def.id] = worldState[def.id];
+      }
+
+      if (def.scope === "session" && def.id === "location" && typeof target[def.id] === "string") {
+        location = target[def.id] as string;
+      }
+    }
+
+    return { worldState, worldPatch, characterState, location };
+  }
 
   // ---------------------------------------------------------------------------
   // Enqueue
@@ -263,10 +319,6 @@ export class ActionProcessor {
       const worldView = await trace.measure("db.worldStore.getView", async () => this.worldStore.getView(campaignId));
       trace.set("worldFactCount", Object.keys(worldView).length);
 
-      // Character-local state overlays the shared world view
-      // This gives the DM a merged context while keeping things separated
-      const mergedWorldState = { ...worldView, ...session.characterState };
-
       // Recent mutations from OTHER players (cross-player awareness)
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000); // last 24h
       const recentMutations = await trace.measure("db.worldStore.getRecentMutations", async () =>
@@ -334,7 +386,7 @@ export class ActionProcessor {
         location: session.location,
         actionText,
         mechanicActionId,
-        worldState: mergedWorldState,
+        worldState: worldView,
         recentEvents: session.recentEvents.slice(-20),
         campaignTitle: campaign.title,
         summary: session.summary,
@@ -349,7 +401,7 @@ export class ActionProcessor {
       trace.recordPhase("engine.executeTurn.total", Date.now() - executeTurnStartedAt);
       trace.setMany({
         handledByMechanic: Boolean(result.handledByMechanic),
-        worldPatchKeys: Object.keys(result.worldPatch ?? {}).length,
+        stateOpsCount: result.stateOps?.length ?? 0,
         responseMessageLength: result.message.length,
         sessionEnded: result.endSession ?? null
       });
@@ -375,10 +427,28 @@ export class ActionProcessor {
       const lockWaitStartedAt = Date.now();
       await this.withCampaignLock(campaignId, async () => {
         trace.recordPhase("commit.waitForCampaignLock", Date.now() - lockWaitStartedAt);
+        const appliedResult = this.applyStateOperations({
+          operations: result.stateOps ?? [],
+          worldState: worldView,
+          characterState: session.characterState,
+          location: session.location,
+          actor: result.handledByMechanic ? "mechanic" : "dm"
+        });
+        await this.worldStore.logOperations({
+          campaignId,
+          sessionId,
+          actor: result.handledByMechanic ? "mechanic" : "dm",
+          source: "turn",
+          operations: result.stateOps ?? [],
+          variables: this.stateVariables,
+          valueBefore: { ...worldView, ...session.characterState, location: session.location },
+          valueAfter: { ...appliedResult.worldState, ...appliedResult.characterState, location: appliedResult.location }
+        });
+
         // Write shared world patch to canonical WorldFact store
-        if (result.worldPatch && Object.keys(result.worldPatch).length > 0) {
+        if (Object.keys(appliedResult.worldPatch).length > 0) {
           await trace.measure("commit.worldStore.applyPatch", async () =>
-            this.worldStore.applyPatch(campaignId, result.worldPatch!, sessionId)
+            this.worldStore.applyPatch(campaignId, appliedResult.worldPatch, sessionId)
           );
         }
 
@@ -389,8 +459,7 @@ export class ActionProcessor {
 
         if (result.endSession) {
           const characterStateForSessionEnd = {
-            ...session.characterState,
-            ...(result.characterState ?? {})
+            ...appliedResult.characterState
           };
 
           const endPatch = await trace.measure("engine.endSession", async () =>
@@ -401,20 +470,36 @@ export class ActionProcessor {
               playerId: session.userId,
               reason: result.endSession as SessionEndReason,
               characterState: characterStateForSessionEnd,
-              worldState: mergedWorldState
+              worldState: appliedResult.worldState
             })
           );
 
-          if (endPatch.worldPatch && Object.keys(endPatch.worldPatch).length > 0) {
+          const appliedEnd = this.applyStateOperations({
+            operations: endPatch.stateOps ?? [],
+            worldState: appliedResult.worldState,
+            characterState: characterStateForSessionEnd,
+            location: appliedResult.location,
+            actor: "mechanic"
+          });
+          await this.worldStore.logOperations({
+            campaignId,
+            sessionId,
+            actor: "mechanic",
+            source: "session_end",
+            operations: endPatch.stateOps ?? [],
+            variables: this.stateVariables,
+            valueBefore: { ...appliedResult.worldState, ...characterStateForSessionEnd, location: appliedResult.location },
+            valueAfter: { ...appliedEnd.worldState, ...appliedEnd.characterState, location: appliedEnd.location }
+          });
+
+          if (Object.keys(appliedEnd.worldPatch).length > 0) {
             await trace.measure("commit.worldStore.applyEndPatch", async () =>
-              this.worldStore.applyPatch(campaignId, endPatch.worldPatch!, sessionId)
+              this.worldStore.applyPatch(campaignId, appliedEnd.worldPatch, sessionId)
             );
-            endWorldPatch = endPatch.worldPatch;
+            endWorldPatch = appliedEnd.worldPatch;
           }
 
-          if (endPatch.characterState && Object.keys(endPatch.characterState).length > 0) {
-            endCharacterState = endPatch.characterState;
-          }
+          endCharacterState = appliedEnd.characterState;
 
           endSessionReason = result.endSession;
         }
@@ -432,8 +517,7 @@ export class ActionProcessor {
         // 1. Current state
         // 2. Any patches from mechanics (hp/level are already in characterState from engine)
         const newCharacterState: Record<string, unknown> = {
-          ...session.characterState,
-          ...(result.characterState ?? {}),
+          ...appliedResult.characterState,
           ...(endCharacterState ?? {})
         };
 
@@ -441,7 +525,7 @@ export class ActionProcessor {
         await trace.measure("commit.commitSessionMutation", async () =>
           this.callbacks.commitSessionMutation(sessionId, {
             characterState: newCharacterState,
-            location: result.location,
+            location: result.location ?? appliedResult.location,
             summary: result.summaryPatch?.shortSummary ?? session.summary,
             suggestedActions:
               result.suggestedActions && result.suggestedActions.length > 0
@@ -465,8 +549,7 @@ export class ActionProcessor {
                   playerId: session.userId,
                   actionText,
                   message: result.message,
-                  hadWorldPatch: !!result.worldPatch,
-                  hadCharacterState: !!(result as { characterState?: unknown }).characterState,
+                  stateOpsCount: result.stateOps?.length ?? 0,
                   endSession: endSessionReason ?? null,
                   endWorldPatch: endWorldPatch ?? null
                 })) as object
@@ -500,6 +583,7 @@ export class ActionProcessor {
         entry.result = {
           event,
           characterState: newCharacterState,
+          worldState: appliedResult.worldState,
           sessionEnded: endSessionReason ? { reason: endSessionReason } : undefined
         };
 

@@ -12,7 +12,7 @@ Claustrophobic sci-fi survival horror with black humor and paranoia. Keep scenes
 
 ## Core Rules
 - Never reveal hidden planning or internal state keys.
-- Use small, targeted `worldPatch` updates.
+- Use small, targeted `stateOps` updates against declared `varId` variables.
 - Keep `summaryPatch.shortSummary` to one sentence.
 - Suggested actions must be concrete and immediately usable.
 

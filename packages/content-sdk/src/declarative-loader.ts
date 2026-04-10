@@ -28,11 +28,13 @@ import type {
   DungeonMasterModuleConfig,
   GameModuleSetting,
   ResourceSchema,
+  StateCatalog,
   Mechanic
 } from "./index.js";
 import {
   loadLoreFilesSync,
   loadResourcesDirSync,
+  loadStateCatalogDirSync,
   loadClassesFileSync,
   loadDmConfigFileSync,
   loadInitialStateFileSync
@@ -74,6 +76,7 @@ export interface DeclarativeModuleBase {
   dm: DungeonMasterModuleConfig;
   setting?: GameModuleSetting;
   resources?: ResourceSchema[];
+  state?: StateCatalog;
 }
 
 export interface DeclarativeBaseResult {
@@ -139,7 +142,16 @@ export const loadDeclarativeGameModule = (modulePath: string): DeclarativeModule
   const initialState = loadInitialStateFileSync(join(contentBase, "initial-state.json")) ?? {};
 
   // ── indicators/*.json (optional) ─────────────────────────────────────────
+  const state = loadStateCatalogDirSync(join(contentBase, "state"));
   const resources = loadResourcesDirSync(join(contentBase, "indicators"));
+  const stateVarIds = new Set(state.variables.map((v) => v.id));
+  const invalidResources = resources.filter((resource) => !stateVarIds.has(resource.varId));
+  if (invalidResources.length > 0) {
+    throw new Error(
+      `Invalid indicator bindings: ${invalidResources.map((r) => `${r.id}->${r.varId}`).join(", ")}. ` +
+        `Each indicator varId must reference a variable in content/state/*.json.`
+    );
+  }
 
   const gameModule: GameModule = {
     manifest,
@@ -156,7 +168,8 @@ export const loadDeclarativeGameModule = (modulePath: string): DeclarativeModule
         ? { config: settingConfig, loreFiles }
         : undefined,
     mechanics: [],
-    resources: resources.length > 0 ? resources : undefined
+    resources: resources.length > 0 ? resources : undefined,
+    state: state.variables.length > 0 ? state : undefined
   };
 
   return { gameModule, warnings };
@@ -216,7 +229,16 @@ export const loadDeclarativeModuleBase = (modulePath: string): DeclarativeBaseRe
   const initialState = loadInitialStateFileSync(join(contentBase, "initial-state.json")) ?? {};
 
   // ── indicators/*.json (optional) ─────────────────────────────────────────
+  const state = loadStateCatalogDirSync(join(contentBase, "state"));
   const resources = loadResourcesDirSync(join(contentBase, "indicators"));
+  const stateVarIds = new Set(state.variables.map((v) => v.id));
+  const invalidResources = resources.filter((resource) => !stateVarIds.has(resource.varId));
+  if (invalidResources.length > 0) {
+    throw new Error(
+      `Invalid indicator bindings: ${invalidResources.map((r) => `${r.id}->${r.varId}`).join(", ")}. ` +
+        `Each indicator varId must reference a variable in content/state/*.json.`
+    );
+  }
 
   const base: DeclarativeModuleBase = {
     manifest,
@@ -232,7 +254,8 @@ export const loadDeclarativeModuleBase = (modulePath: string): DeclarativeBaseRe
       settingConfig || loreFiles.length > 0
         ? { config: settingConfig, loreFiles }
         : undefined,
-    resources: resources.length > 0 ? resources : undefined
+    resources: resources.length > 0 ? resources : undefined,
+    state: state.variables.length > 0 ? state : undefined
   };
 
   const mechanics: Mechanic[] = [];

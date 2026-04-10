@@ -1,24 +1,9 @@
 import { defineMechanic } from "@opendungeon/content-sdk";
 
-/**
- * Extraction mechanic — roguelite "extraction shooter" pattern.
- *
- * Rules:
- * - Items found during a session accumulate in `characterState.sessionLoot`.
- * - If the player reaches an exit and successfully extracts, session loot
- *   is moved to `worldState.persistedLoot[playerId]` (survives between runs).
- * - If the session ends via death or abandonment, session loot is lost.
- *
- * The DM is told to:
- * - Mark `nearExit: true` in worldPatch when the player reaches an exit point.
- * - Append found items to `lootFound` in worldPatch.
- *
- * This mechanic is fully self-contained. It does not touch engine-core or gateway.
- */
 const STARTING_GEAR: Record<string, { id: string; label: string }[]> = {
   Warrior: [{ id: "iron_shield", label: "Iron Shield" }],
-  Mage:    [{ id: "spell_tome", label: "Worn Spell Tome" }],
-  Ranger:  [{ id: "quiver", label: "Quiver of Arrows" }]
+  Mage: [{ id: "spell_tome", label: "Worn Spell Tome" }],
+  Ranger: [{ id: "quiver", label: "Quiver of Arrows" }]
 };
 
 export const extractionMechanic = defineMechanic({
@@ -27,113 +12,52 @@ export const extractionMechanic = defineMechanic({
   hooks: {
     onCharacterCreated: async (ctx) => {
       const gear = STARTING_GEAR[ctx.characterClass] ?? [];
-
-      const persistedKey = `persistedLoot_${ctx.playerId}`;
-      const existing = Array.isArray(ctx.worldState[persistedKey])
-        ? (ctx.worldState[persistedKey] as unknown[])
-        : [];
-
       return {
-        worldPatch: {
-          [persistedKey]: [...existing, ...gear]
-        },
-        characterState: {
-          gold: 10,
-          inventory: gear.map(g => ({ id: g.id, label: g.label }))
-        }
+        stateOps: [
+          { op: "set", varId: "gold", value: 10 },
+          { op: "set", varId: "inventory", value: gear.map((g) => ({ id: g.id, label: g.label })) }
+        ]
       };
     },
 
-    onSessionStart: async (ctx) => {
-      // Reset session loot at the start of each run
-      return {
-        characterState: {
-          sessionLoot: [],
-          nearExit: false
-        }
-      };
-    },
+    onSessionStart: async () => ({
+      stateOps: [
+        { op: "set", varId: "sessionLoot", value: [] },
+        { op: "set", varId: "nearExit", value: false }
+      ]
+    }),
 
     onActionResolved: async (result, ctx) => {
-      const nextWorldPatch = { ...(result.worldPatch ?? {}) };
-      const nextCharacterState = { ...(result.characterState ?? {}) };
+      const nearExit = ctx.characterState.nearExit === true;
+      if (!nearExit) return result;
 
-      let sessionLoot = Array.isArray(nextCharacterState.sessionLoot)
-        ? nextCharacterState.sessionLoot
-        : Array.isArray(ctx.characterState.sessionLoot)
-          ? ctx.characterState.sessionLoot
-          : [];
-
-      // Move transient lootFound from DM worldPatch into session-scoped characterState
-      const lootFound = nextWorldPatch.lootFound;
-      if (Array.isArray(lootFound) && lootFound.length > 0) {
-        sessionLoot = [...sessionLoot, ...lootFound];
-        nextCharacterState.sessionLoot = sessionLoot;
-        delete nextWorldPatch.lootFound;
-      }
-
-      // Move nearExit to characterState so it stays session-local
-      if (typeof nextWorldPatch.nearExit === "boolean") {
-        nextCharacterState.nearExit = nextWorldPatch.nearExit;
-        delete nextWorldPatch.nearExit;
-      }
-
-      result = {
-        ...result,
-        worldPatch: Object.keys(nextWorldPatch).length > 0 ? nextWorldPatch : undefined,
-        characterState: Object.keys(nextCharacterState).length > 0 ? nextCharacterState : undefined
-      };
-
-      // If the DM moved the player near an exit, surface the extract action
-      if (nextCharacterState.nearExit === true) {
-        const extractAction = {
-          id: "extraction.extract",
-          label: `Extract (${sessionLoot.length} item${sessionLoot.length !== 1 ? "s" : ""})`,
-          prompt: "exit the dungeon and extract with your loot"
-        };
-
-        const existing = result.suggestedActions ?? [];
-        if (!existing.some((a) => a.id === "extraction.extract")) {
-          result = {
-            ...result,
-            suggestedActions: [extractAction, ...existing].slice(0, 4)
-          };
-        }
-      }
-
-      return result;
-    },
-
-    onSessionEnd: async (ctx) => {
       const sessionLoot = Array.isArray(ctx.characterState.sessionLoot)
         ? ctx.characterState.sessionLoot
         : [];
-      const resetSessionState = {
-        sessionLoot: [],
-        nearExit: false
+
+      const extractAction = {
+        id: "extraction.extract",
+        label: `Extract (${sessionLoot.length} item${sessionLoot.length !== 1 ? "s" : ""})`,
+        prompt: "exit the dungeon and extract with your loot"
       };
 
-      if (ctx.reason !== "extraction_success") {
-        return {
-          characterState: resetSessionState
-        };
+      const existing = result.suggestedActions ?? [];
+      if (existing.some((a) => a.id === "extraction.extract")) {
+        return result;
       }
 
-      // Successful extraction — persist loot across runs
-      const persistedKey = `persistedLoot_${ctx.playerId}`;
-      const existing = Array.isArray(ctx.worldState[persistedKey])
-        ? (ctx.worldState[persistedKey] as unknown[])
-        : [];
-
       return {
-        worldPatch: {
-          [persistedKey]: [...existing, ...sessionLoot]
-        },
-        characterState: {
-          ...resetSessionState
-        }
+        ...result,
+        suggestedActions: [extractAction, ...existing].slice(0, 4)
       };
-    }
+    },
+
+    onSessionEnd: async () => ({
+      stateOps: [
+        { op: "set", varId: "sessionLoot", value: [] },
+        { op: "set", varId: "nearExit", value: false }
+      ]
+    })
   },
 
   actions: {
@@ -148,10 +72,9 @@ export const extractionMechanic = defineMechanic({
       resolve: async () => ({
         message:
           "You clear a small patch of ground, stack kindling, and coax a flame to life. The warmth is immediate. You settle in for a short rest.",
-        worldPatch: {
-          campfireActive: true,
-          safeToRest: false
-        },
+        stateOps: [
+          { op: "set", varId: "safeToRest", value: false }
+        ],
         suggestedActions: [
           {
             id: "continue",
@@ -165,7 +88,7 @@ export const extractionMechanic = defineMechanic({
     revive: {
       description: "Use a revival token to return from death with reduced HP",
       validate: (ctx) => {
-        const tokens = Number(ctx.worldState.revivalTokens);
+        const tokens = Number(ctx.worldState["revival.tokens"]);
         if (Number.isNaN(tokens) || tokens < 1) {
           return "You have no revival tokens. Death is permanent this run.";
         }
@@ -173,13 +96,12 @@ export const extractionMechanic = defineMechanic({
       },
       resolve: async () => ({
         message:
-          "The revival token shatters as you grasp it. A surge of warmth pulls you back from the brink. You survive — barely.",
-        worldPatch: {
-          revivalTokens: 0
-        },
-        characterState: {
-          hp: 1
-        }
+          "The revival token shatters as you grasp it. A surge of warmth pulls you back from the brink. You survive - barely.",
+        stateOps: [
+          { op: "set", varId: "revival.tokens", value: 0 },
+          { op: "set", varId: "revival.lastUse", value: "current_run" },
+          { op: "set", varId: "hp", value: 1 }
+        ]
       })
     },
 
@@ -200,7 +122,7 @@ export const extractionMechanic = defineMechanic({
         return {
           message:
             count > 0
-              ? `You slip through the exit, ${count} item${count !== 1 ? "s" : ""} secured. The dungeon can wait — you live to return.`
+              ? `You slip through the exit, ${count} item${count !== 1 ? "s" : ""} secured. The dungeon can wait - you live to return.`
               : "You exit empty-handed, but alive. There is always another run.",
           endSession: "extraction_success"
         };

@@ -1,7 +1,6 @@
 {
   "id": "hp",
   "label": "HP",
-  "source": "characterState",
-  "stateKey": "hp",
+  "varId": "hp",
   "type": "number"
 }

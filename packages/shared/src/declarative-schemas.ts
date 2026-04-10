@@ -28,7 +28,7 @@ export type ClassesFile = z.infer<typeof classesFileSchema>;
 // ---------------------------------------------------------------------------
 
 const dungeonMasterToolNameSchema = z.enum([
-  "update_world_state",
+  "update_state",
   "set_summary",
   "set_suggested_actions"
 ]);
@@ -101,4 +101,3 @@ export type DmConfigFile = z.infer<typeof dmConfigFileSchema>;
 export const initialStateFileSchema = z.record(z.string(), z.unknown());
 
 export type InitialStateFile = z.infer<typeof initialStateFileSchema>;
-
